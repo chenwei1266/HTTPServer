@@ -35,7 +35,6 @@ class HttpServer : muduo::noncopyable
 public:
     using HttpCallback = std::function<void (const http::HttpRequest&, http::HttpResponse*)>;
     
-    // 构造函数
     HttpServer(int port,
                const std::string& name,
                bool useSSL = false,
@@ -58,13 +57,11 @@ public:
         httpCallback_ = cb;
     }
 
-    // 注册静态路由处理器
     void Get(const std::string& path, const HttpCallback& cb)
     {
         router_.registerCallback(HttpRequest::kGet, path, cb);
     }
     
-    // 注册静态路由处理器
     void Get(const std::string& path, router::Router::HandlerPtr handler)
     {
         router_.registerHandler(HttpRequest::kGet, path, handler);
@@ -80,31 +77,26 @@ public:
         router_.registerHandler(HttpRequest::kPost, path, handler);
     }
 
-    // 注册动态路由处理器
     void addRoute(HttpRequest::Method method, const std::string& path, router::Router::HandlerPtr handler)
     {
         router_.addRegexHandler(method, path, handler);
     }
 
-    // 注册动态路由处理函数
     void addRoute(HttpRequest::Method method, const std::string& path, const router::Router::HandlerCallback& callback)
     {
         router_.addRegexCallback(method, path, callback);
     }
 
-    // 设置会话管理器
     void setSessionManager(std::unique_ptr<session::SessionManager> manager)
     {
         sessionManager_ = std::move(manager);
     }
 
-    // 获取会话管理器
     session::SessionManager* getSessionManager() const
     {
         return sessionManager_.get();
     }
 
-    // 添加中间件的方法
     void addMiddleware(std::shared_ptr<middleware::Middleware> middleware) 
     {
         middlewareChain_.addMiddleware(middleware);
@@ -126,19 +118,21 @@ private:
                    muduo::Timestamp receiveTime);
     void onRequest(const muduo::net::TcpConnectionPtr&, const HttpRequest&);
 
-    void handleRequest(const HttpRequest& req, HttpResponse* resp);
+    // ★ handleRequest 新增 conn 参数，供 SSE handler 直接持有连接
+    void handleRequest(const muduo::net::TcpConnectionPtr& conn,
+                       const HttpRequest& req,
+                       HttpResponse* resp);
     
 private:
-    muduo::net::InetAddress                      listenAddr_; // 监听地址
+    muduo::net::InetAddress                      listenAddr_;
     muduo::net::TcpServer                        server_; 
-    muduo::net::EventLoop                        mainLoop_; // 主循环
-    HttpCallback                                 httpCallback_; // 回调函数
-    router::Router                               router_; // 路由
-    std::unique_ptr<session::SessionManager>     sessionManager_; // 会话管理器
-    middleware::MiddlewareChain                  middlewareChain_; // 中间件链
-    std::unique_ptr<ssl::SslContext>             sslCtx_; // SSL 上下文
-    bool                                         useSSL_; // 是否使用 SSL   
-    // TcpConnectionPtr -> SslConnectionPtr 
+    muduo::net::EventLoop                        mainLoop_;
+    HttpCallback                                 httpCallback_;
+    router::Router                               router_;
+    std::unique_ptr<session::SessionManager>     sessionManager_;
+    middleware::MiddlewareChain                  middlewareChain_;
+    std::unique_ptr<ssl::SslContext>             sslCtx_;
+    bool                                         useSSL_;
     std::map<muduo::net::TcpConnectionPtr, std::unique_ptr<ssl::SslConnection>> sslConns_;
 }; 
 

@@ -25,6 +25,7 @@ public:
     HttpResponse(bool close = true)
         : statusCode_(kUnknown)
         , closeConnection_(close)
+        , sseUpgraded_(false)   // SSE 标志
     {}
 
     void setVersion(std::string version)
@@ -54,10 +55,7 @@ public:
     { headers_[key] = value; }
     
     void setBody(const std::string& body)
-    { 
-        body_ = body;
-        // body_ += "\0";
-    }
+    { body_ = body; }
 
     void setStatusLine(const std::string& version,
                          HttpStatusCode statusCode,
@@ -66,6 +64,12 @@ public:
     void setErrorHeader(){}
 
     void appendToBuffer(muduo::net::Buffer* outputBuf) const;
+
+    // ===== SSE 扩展 =====
+    // 标记此响应已被 SSE 处理器接管，HttpServer 不应再发送响应
+    void markAsSseUpgraded() { sseUpgraded_ = true; }
+    bool isSseUpgraded() const { return sseUpgraded_; }
+
 private:
     std::string                        httpVersion_; 
     HttpStatusCode                     statusCode_;
@@ -74,6 +78,7 @@ private:
     std::map<std::string, std::string> headers_;
     std::string                        body_;
     bool                               isFile_;
+    bool                               sseUpgraded_;   // SSE 升级标志
 };
 
 } // namespace http

@@ -1,3 +1,0 @@
-/home/user/cw/HTTPServer/HttpServer/examples/build/CMakeFiles/todo_server.dir
-/home/user/cw/HTTPServer/HttpServer/examples/build/CMakeFiles/edit_cache.dir
-/home/user/cw/HTTPServer/HttpServer/examples/build/CMakeFiles/rebuild_cache.dir

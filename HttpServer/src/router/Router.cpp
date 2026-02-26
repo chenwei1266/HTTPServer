@@ -1,5 +1,4 @@
 #include "../../include/router/Router.h"
-#include <muduo/base/Logging.h>
 
 namespace http
 {
@@ -9,28 +8,33 @@ namespace router
 void Router::registerHandler(HttpRequest::Method method, const std::string &path, HandlerPtr handler)
 {
     RouteKey key{method, path};
-    handlers_[key] = std::move(handler);
+    handlers_[key] = handler;
 }
 
 void Router::registerCallback(HttpRequest::Method method, const std::string &path, const HandlerCallback &callback)
 {
     RouteKey key{method, path};
-    callbacks_[key] = std::move(callback);
+    callbacks_[key] = callback;
 }
 
-bool Router::route(const HttpRequest &req, HttpResponse *resp)
+// ★ 新增 conn 参数版本，替换原来的 route(req, resp)
+bool Router::route(const muduo::net::TcpConnectionPtr &conn,
+                   const HttpRequest &req,
+                   HttpResponse *resp)
 {
     RouteKey key{req.method(), req.path()};
 
-    // 查找处理器
+    // 1. 精确匹配 Handler
     auto handlerIt = handlers_.find(key);
     if (handlerIt != handlers_.end())
     {
+        // ★ 注入连接，SSE handler 在 handle() 内可直接使用 conn_
+        handlerIt->second->conn_ = conn;
         handlerIt->second->handle(req, resp);
         return true;
     }
 
-    // 查找回调函数
+    // 2. 精确匹配 Callback（回调函数无需注入 conn）
     auto callbackIt = callbacks_.find(key);
     if (callbackIt != callbacks_.end())
     {
@@ -38,41 +42,42 @@ bool Router::route(const HttpRequest &req, HttpResponse *resp)
         return true;
     }
 
-    // 查找动态路由处理器
-    for (const auto &[method, pathRegex, handler] : regexHandlers_)
+    // 3. 正则匹配 Handler
+    std::string path = req.path();
+    for (auto &routeObj : regexHandlers_)
     {
         std::smatch match;
-        std::string pathStr(req.path());
-        // 如果方法匹配并且动态路由匹配，则执行处理器
-        if (method == req.method() && std::regex_match(pathStr, match, pathRegex))
+        if (routeObj.method_ == req.method() &&
+            std::regex_match(path, match, routeObj.pathRegex_))
         {
-            // Extract path parameters and add them to the request
-            HttpRequest newReq(req); // 因为这里需要用这一次所以是可以改的
-            extractPathParameters(match, newReq);
-            
-            handler->handle(newReq, resp);
+            extractPathParameters(match, const_cast<HttpRequest &>(req));
+            // ★ 注入连接
+            routeObj.handler_->conn_ = conn;
+            routeObj.handler_->handle(req, resp);
             return true;
         }
     }
 
-    // 查找动态路由回调函数
-    for (const auto &[method, pathRegex, callback] : regexCallbacks_)
+    // 4. 正则匹配 Callback
+    for (auto &routeObj : regexCallbacks_)
     {
         std::smatch match;
-        std::string pathStr(req.path());
-        // 如果方法匹配并且动态路由匹配，则执行回调函数
-        if (method == req.method() && std::regex_match(pathStr, match, pathRegex))
+        if (routeObj.method_ == req.method() &&
+            std::regex_match(path, match, routeObj.pathRegex_))
         {
-             // Extract path parameters and add them to the request
-            HttpRequest newReq(req); // 因为这里需要用这一次所以是可以改的
-            extractPathParameters(match, newReq);
-
-            callback(req, resp);
+            extractPathParameters(match, const_cast<HttpRequest &>(req));
+            routeObj.callback_(req, resp);
             return true;
         }
     }
 
     return false;
+}
+
+// ★ 保留旧签名作为兼容重载（内部委托给新版本，conn 传空）
+bool Router::route(const HttpRequest &req, HttpResponse *resp)
+{
+    return route(muduo::net::TcpConnectionPtr{}, req, resp);
 }
 
 } // namespace router

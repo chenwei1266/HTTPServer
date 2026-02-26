@@ -22,7 +22,6 @@ HttpServer::HttpServer(int port,
     : listenAddr_(port)
     , server_(&mainLoop_, listenAddr_, name, option)
     , useSSL_(useSSL)
-    , httpCallback_(std::bind(&HttpServer::handleRequest, this, std::placeholders::_1, std::placeholders::_2))
 {
     initialize();
 }
@@ -149,17 +148,24 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
                   (req.getVersion() == "HTTP/1.0" && connection != "Keep-Alive"));
     HttpResponse response(close);
 
-    // 根据请求报文信息来封装响应报文对象
-    httpCallback_(req, &response); // 执行onHttpCallback函数
+    response.setVersion(req.getVersion().empty() ? "HTTP/1.1" : req.getVersion());
 
-    // 可以给response设置一个成员，判断是否请求的是文件，如果是文件设置为true，并且存在文件位置在这里send出去。
+    // 根据请求报文信息来封装响应报文对象
+    // ★ 将 conn 一并传入，供 SSE handler 直接操作连接
+    handleRequest(conn, req, &response);
+
+    // ★ SSE 升级后，握手头已在 handler 内直接发送给 conn，
+    //   此处跳过标准响应序列化，同时不关闭连接。
+    if (response.isSseUpgraded())
+    {
+        return;
+    }
+
     muduo::net::Buffer buf;
     response.appendToBuffer(&buf);
-    // 打印完整的响应内容用于调试
     LOG_INFO << "Sending response:\n" << buf.toStringPiece().as_string();
 
     conn->send(&buf);
-    // 如果是短连接的话，返回响应报文后就断开连接
     if (response.closeConnection())
     {
         conn->shutdown();
@@ -167,7 +173,10 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
 }
 
 // 执行请求对应的路由处理函数
-void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
+// ★ 新增 conn 参数，用于将底层连接注入 SSE handler
+void HttpServer::handleRequest(const muduo::net::TcpConnectionPtr &conn,
+                               const HttpRequest &req,
+                               HttpResponse *resp)
 {
     try
     {
@@ -175,14 +184,20 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
         HttpRequest mutableReq = req;
         middlewareChain_.processBefore(mutableReq);
 
-        // 路由处理
-        if (!router_.route(mutableReq, resp))
+        // ★ 路由时传入 conn，Router 负责在分发给 RouterHandler 前注入 conn_
+        if (!router_.route(conn, mutableReq, resp))
         {
             LOG_INFO << "请求的啥，url：" << req.method() << " " << req.path();
             LOG_INFO << "未找到路由，返回404";
             resp->setStatusCode(HttpResponse::k404NotFound);
             resp->setStatusMessage("Not Found");
             resp->setCloseConnection(true);
+        }
+
+        // ★ SSE 升级后跳过后置中间件（响应已由 SseConnection 接管）
+        if (resp->isSseUpgraded())
+        {
+            return;
         }
 
         // 处理响应后的中间件
