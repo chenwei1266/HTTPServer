@@ -36,6 +36,278 @@
     overflow: hidden;
   }
 
+  /* ═══════════════════════════════════════════
+     AUTH PAGE
+  ═══════════════════════════════════════════ */
+  #authPage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Animated background */
+  #authPage::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 30%, rgba(123,110,246,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 80% 70%, rgba(196,181,253,0.07) 0%, transparent 60%);
+    animation: bgShift 8s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+
+  @keyframes bgShift {
+    from { opacity: 0.7; }
+    to   { opacity: 1; }
+  }
+
+  /* Grid lines decoration */
+  #authPage::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(123,110,246,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123,110,246,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .auth-card {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 420px;
+    padding: 0 20px;
+    animation: cardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .auth-inner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 40px 36px;
+    box-shadow:
+      0 0 0 1px rgba(123,110,246,0.08),
+      0 24px 64px rgba(0,0,0,0.4),
+      0 4px 16px rgba(0,0,0,0.3);
+  }
+
+  .auth-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+    justify-content: center;
+  }
+
+  .auth-logo-mark {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 4px 16px rgba(123,110,246,0.35);
+  }
+
+  .auth-logo-name {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+
+  /* Tab switcher */
+  .auth-tabs {
+    display: flex;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 3px;
+    margin-bottom: 28px;
+  }
+
+  .auth-tab {
+    flex: 1;
+    padding: 8px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Noto Serif SC', serif;
+    font-size: 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .auth-tab.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(123,110,246,0.4);
+  }
+
+  .auth-tab:not(.active):hover { color: var(--text); }
+
+  /* Forms */
+  .auth-form { display: none; flex-direction: column; gap: 16px; }
+  .auth-form.active { display: flex; }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+
+  .form-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .form-input {
+    padding: 11px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font-family: 'Noto Serif SC', serif;
+    font-size: 14px;
+    outline: none;
+    transition: all 0.2s;
+    width: 100%;
+  }
+
+  .form-input::placeholder { color: var(--muted); }
+
+  .form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(123,110,246,0.15);
+  }
+
+  .form-input.error {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px rgba(248,113,113,0.1);
+  }
+
+  .form-error {
+    font-size: 12px;
+    color: var(--danger);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 16px;
+    display: none;
+  }
+
+  .form-error.show { display: block; }
+
+  .auth-submit {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-family: 'Noto Serif SC', serif;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(123,110,246,0.35);
+  }
+
+  .auth-submit:hover {
+    background: #6d5ee0;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(123,110,246,0.45);
+  }
+
+  .auth-submit:active { transform: translateY(0); }
+
+  .auth-submit:disabled {
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .auth-submit .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  .auth-submit.loading .spinner { display: block; }
+  .auth-submit.loading .btn-text { display: none; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .auth-divider::before,
+  .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .auth-footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .auth-footer a {
+    color: var(--accent2);
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .auth-footer a:hover { text-decoration: underline; }
+
+  /* Auth global error */
+  .auth-alert {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    display: none;
+    animation: fadeSlideIn 0.2s ease;
+  }
+
+  .auth-alert.error   { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: var(--danger); }
+  .auth-alert.success { background: rgba(74,222,128,0.1);  border: 1px solid rgba(74,222,128,0.3);  color: var(--success); }
+  .auth-alert.show    { display: block; }
+
+
+  /* ═══════════════════════════════════════════
+     MAIN APP (hidden until logged in)
+  ═══════════════════════════════════════════ */
+  #appPage { display: none; }
+  #appPage.show { display: block; }
+
   /* ── Layout ── */
   .app {
     display: grid;
@@ -77,6 +349,38 @@
     font-weight: 500;
     color: var(--text);
     letter-spacing: 0.02em;
+    flex: 1;
+  }
+
+  /* User avatar in sidebar */
+  .user-badge {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .user-badge:hover::after {
+    content: '登出';
+    position: absolute;
+    bottom: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--muted);
+    white-space: nowrap;
+    z-index: 10;
   }
 
   .new-chat-btn {
@@ -190,7 +494,6 @@
     position: relative;
   }
 
-  /* Header */
   .chat-header {
     padding: 18px 28px;
     border-bottom: 1px solid var(--border);
@@ -199,7 +502,6 @@
     justify-content: space-between;
     flex-shrink: 0;
     background: var(--bg);
-    backdrop-filter: blur(10px);
   }
 
   .chat-title {
@@ -208,10 +510,7 @@
     color: var(--text);
   }
 
-  .header-actions {
-    display: flex;
-    gap: 8px;
-  }
+  .header-actions { display: flex; gap: 8px; }
 
   .icon-btn {
     width: 32px; height: 32px;
@@ -246,7 +545,6 @@
     gap: 32px;
   }
 
-  /* Empty state */
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -296,7 +594,6 @@
     color: var(--text);
   }
 
-  /* Message row */
   .message-row {
     display: flex;
     gap: 14px;
@@ -323,10 +620,7 @@
   .avatar.user { background: linear-gradient(135deg, var(--accent), #a78bfa); color: #fff; }
   .avatar.ai   { background: var(--surface2); border: 1px solid var(--border); color: var(--accent2); font-size: 16px; }
 
-  .bubble-wrap {
-    flex: 1;
-    max-width: calc(100% - 46px);
-  }
+  .bubble-wrap { flex: 1; max-width: calc(100% - 46px); }
 
   .sender-name {
     font-size: 11px;
@@ -365,7 +659,6 @@
     color: var(--text);
   }
 
-  /* Markdown-like styling inside AI bubble */
   .bubble code {
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
@@ -395,7 +688,6 @@
     color: var(--text);
   }
 
-  /* Cursor blink */
   .cursor {
     display: inline-block;
     width: 2px;
@@ -412,7 +704,6 @@
     50%       { opacity: 0; }
   }
 
-  /* Typing indicator */
   .typing-indicator {
     display: flex;
     gap: 4px;
@@ -432,7 +723,7 @@
 
   @keyframes typingPulse {
     0%, 60%, 100% { transform: scale(1); opacity: 0.5; }
-    30%           { transform: scale(1.3); opacity: 1; }
+    30%            { transform: scale(1.3); opacity: 1; }
   }
 
   /* ── Input Area ── */
@@ -443,10 +734,7 @@
     flex-shrink: 0;
   }
 
-  .input-container {
-    max-width: 780px;
-    margin: 0 auto;
-  }
+  .input-container { max-width: 780px; margin: 0 auto; }
 
   .input-box {
     display: flex;
@@ -457,7 +745,6 @@
     border-radius: 14px;
     padding: 12px 12px 12px 18px;
     transition: border-color 0.2s;
-    position: relative;
   }
   .input-box:focus-within { border-color: var(--accent); }
 
@@ -474,11 +761,9 @@
     max-height: 180px;
     min-height: 24px;
     overflow-y: auto;
-    placeholder-color: var(--muted);
   }
 
   .input-box textarea::placeholder { color: var(--muted); }
-
   .input-box textarea::-webkit-scrollbar { width: 3px; }
   .input-box textarea::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 2px; }
 
@@ -543,22 +828,117 @@
     opacity: 0;
     transition: all 0.3s;
     pointer-events: none;
-    z-index: 100;
+    z-index: 200;
     white-space: nowrap;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-  /* Scrollbar for model select */
   .model-select option { background: var(--surface2); }
 
-  /* Responsive */
   @media (max-width: 700px) {
     .app { grid-template-columns: 1fr; }
     .sidebar { display: none; }
   }
+
+  /* Page transition */
+  .page-fade-out {
+    animation: pageFadeOut 0.3s ease forwards;
+  }
+  .page-fade-in {
+    animation: pageFadeIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes pageFadeOut {
+    to { opacity: 0; transform: scale(0.97); }
+  }
+  @keyframes pageFadeIn {
+    from { opacity: 0; transform: scale(1.01); }
+    to   { opacity: 1; transform: scale(1); }
+  }
 </style>
 </head>
 <body>
+
+<!-- ══════════════════════════════════════
+     AUTH PAGE
+══════════════════════════════════════ -->
+<div id="authPage">
+  <div class="auth-card">
+    <div class="auth-inner">
+      <div class="auth-logo">
+        <div class="auth-logo-mark">✦</div>
+        <span class="auth-logo-name">AI 对话</span>
+      </div>
+
+      <!-- Tab switcher -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')">登录</button>
+        <button class="auth-tab" id="tabRegister" onclick="switchTab('register')">注册</button>
+      </div>
+
+      <!-- Global alert -->
+      <div class="auth-alert" id="authAlert"></div>
+
+      <!-- Login Form -->
+      <form class="auth-form active" id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input class="form-input" id="loginUsername" type="text"
+                 placeholder="请输入用户名" autocomplete="username" required>
+          <span class="form-error" id="loginUsernameErr"></span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input class="form-input" id="loginPassword" type="password"
+                 placeholder="请输入密码" autocomplete="current-password" required>
+          <span class="form-error" id="loginPasswordErr"></span>
+        </div>
+        <button class="auth-submit" id="loginSubmitBtn" type="submit">
+          <div class="spinner"></div>
+          <span class="btn-text">登录</span>
+        </button>
+        <div class="auth-footer">
+          还没有账号？<a onclick="switchTab('register')">立即注册</a>
+        </div>
+      </form>
+
+      <!-- Register Form -->
+      <form class="auth-form" id="registerForm" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input class="form-input" id="regUsername" type="text"
+                 placeholder="3–20 位字母、数字或下划线" autocomplete="username" required>
+          <span class="form-error" id="regUsernameErr"></span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input class="form-input" id="regPassword" type="password"
+                 placeholder="至少 6 位" autocomplete="new-password" required>
+          <span class="form-error" id="regPasswordErr"></span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">确认密码</label>
+          <input class="form-input" id="regPasswordConfirm" type="password"
+                 placeholder="再次输入密码" autocomplete="new-password" required>
+          <span class="form-error" id="regPasswordConfirmErr"></span>
+        </div>
+        <button class="auth-submit" id="regSubmitBtn" type="submit">
+          <div class="spinner"></div>
+          <span class="btn-text">创建账号</span>
+        </button>
+        <div class="auth-footer">
+          已有账号？<a onclick="switchTab('login')">直接登录</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     MAIN APP PAGE
+══════════════════════════════════════ -->
+<div id="appPage">
 <div class="app">
 
   <!-- Sidebar -->
@@ -566,6 +946,7 @@
     <div class="sidebar-header">
       <div class="logo-mark">✦</div>
       <span class="logo-text">AI 对话</span>
+      <div class="user-badge" id="userBadge" onclick="doLogout()" title="点击登出">U</div>
     </div>
 
     <button class="new-chat-btn" onclick="newChat()">
@@ -575,9 +956,7 @@
 
     <div class="chat-history-label">历史记录</div>
 
-    <div class="chat-list" id="chatList">
-      <!-- populated by JS -->
-    </div>
+    <div class="chat-list" id="chatList"></div>
 
     <div class="sidebar-footer">
       <select class="model-select" id="modelSelect" onchange="updateModel()">
@@ -614,8 +993,6 @@
 
     <div class="messages-wrap" id="messagesWrap">
       <div class="messages-container" id="messagesContainer">
-
-        <!-- Empty state -->
         <div class="empty-state" id="emptyState">
           <div class="empty-icon">✦</div>
           <div class="empty-title">有什么可以帮你的？</div>
@@ -627,7 +1004,6 @@
             <div class="suggestion-chip" onclick="useSuggestion('推荐 5 本经典的科幻小说')">科幻书单推荐</div>
           </div>
         </div>
-
       </div>
     </div>
 
@@ -653,16 +1029,261 @@
     </div>
   </main>
 </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
 <script>
 // ============================================================
-//  State
+//  Auth State
+// ============================================================
+let currentUser = null; // { username }
+
+// On load, check if already logged in
+window.addEventListener('DOMContentLoaded', () => {
+  checkSession();
+});
+
+async function checkSession() {
+  try {
+    const r = await fetch('/api/auth/me', { method: 'GET', credentials: 'same-origin' });
+    if (r.ok) {
+      const data = await r.json().catch(() => ({}));
+      enterApp(data.username || localStorage.getItem('chatUsername') || 'User');
+    } else {
+      showAuthPage();
+    }
+  } catch {
+    showAuthPage();
+  }
+}
+
+// ============================================================
+//  Auth UI
+// ============================================================
+function showAuthPage() {
+  document.getElementById('authPage').style.display = 'flex';
+  document.getElementById('appPage').style.display = 'none';
+}
+
+function showAppPage() {
+  document.getElementById('authPage').style.display = 'none';
+  // #appPage 本身只是容器，内部 .app 使用 grid 布局，设置为 block 会破坏布局
+  // 用 height:100vh 撑满即可
+  const appPage = document.getElementById('appPage');
+  appPage.style.display = 'block';
+  appPage.style.height = '100vh';
+  appPage.style.overflow = 'hidden';
+  appPage.classList.add('page-fade-in');
+}
+
+function switchTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('tabLogin').classList.toggle('active', isLogin);
+  document.getElementById('tabRegister').classList.toggle('active', !isLogin);
+  document.getElementById('loginForm').classList.toggle('active', isLogin);
+  document.getElementById('registerForm').classList.toggle('active', !isLogin);
+  hideAuthAlert();
+  clearFormErrors();
+}
+
+function showAuthAlert(msg, type = 'error') {
+  const el = document.getElementById('authAlert');
+  el.textContent = msg;
+  el.className = `auth-alert ${type} show`;
+}
+
+function hideAuthAlert() {
+  document.getElementById('authAlert').classList.remove('show');
+}
+
+function clearFormErrors() {
+  document.querySelectorAll('.form-error').forEach(el => {
+    el.textContent = '';
+    el.classList.remove('show');
+  });
+  document.querySelectorAll('.form-input').forEach(el => {
+    el.classList.remove('error');
+  });
+}
+
+function setFieldError(inputId, errId, msg) {
+  const input = document.getElementById(inputId);
+  const err   = document.getElementById(errId);
+  input.classList.add('error');
+  err.textContent = msg;
+  err.classList.add('show');
+}
+
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  btn.classList.toggle('loading', loading);
+  btn.disabled = loading;
+}
+
+// ============================================================
+//  Login
+// ============================================================
+async function handleLogin(e) {
+  e.preventDefault();
+  clearFormErrors();
+  hideAuthAlert();
+
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  let valid = true;
+  if (!username) { setFieldError('loginUsername','loginUsernameErr','请输入用户名'); valid=false; }
+  if (!password) { setFieldError('loginPassword','loginPasswordErr','请输入密码');  valid=false; }
+  if (!valid) return;
+
+  setLoading('loginSubmitBtn', true);
+
+  try {
+    const r = await fetch('/api/auth/login', {
+      credentials: 'same-origin',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (r.ok) {
+      console.log('[handleLogin] login ok, data:', data);
+      localStorage.setItem('chatUsername', username);
+      enterApp(data.username || username);
+    } else {
+      console.log('[handleLogin] login failed, status:', r.status, 'data:', data);
+      showAuthAlert(data.error || data.message || '用户名或密码错误');
+    }
+  } catch {
+    showAuthAlert('网络错误，请检查服务器是否在线');
+  } finally {
+    setLoading('loginSubmitBtn', false);
+  }
+}
+
+// ============================================================
+//  Register
+// ============================================================
+async function handleRegister(e) {
+  e.preventDefault();
+  clearFormErrors();
+  hideAuthAlert();
+
+  const username = document.getElementById('regUsername').value.trim();
+  const password = document.getElementById('regPassword').value;
+  const confirm  = document.getElementById('regPasswordConfirm').value;
+
+  let valid = true;
+  if (!username) {
+    setFieldError('regUsername','regUsernameErr','请输入用户名'); valid=false;
+  } else if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]{3,20}$/.test(username)) {
+    setFieldError('regUsername','regUsernameErr','用户名需 3–20 位，只含字母/数字/下划线/中文'); valid=false;
+  }
+  if (!password) {
+    setFieldError('regPassword','regPasswordErr','请输入密码'); valid=false;
+  } else if (password.length < 6) {
+    setFieldError('regPassword','regPasswordErr','密码至少 6 位'); valid=false;
+  }
+  if (password !== confirm) {
+    setFieldError('regPasswordConfirm','regPasswordConfirmErr','两次密码不一致'); valid=false;
+  }
+  if (!valid) return;
+
+  setLoading('regSubmitBtn', true);
+
+  try {
+    const r = await fetch('/api/auth/register', {
+      credentials: 'same-origin',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (r.ok) {
+      showAuthAlert('注册成功！正在登录…', 'success');
+      // Auto-login after register
+      setTimeout(async () => {
+        const lr = await fetch('/api/auth/login', {
+      credentials: 'same-origin',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (lr.ok) {
+          localStorage.setItem('chatUsername', username);
+          enterApp(username);
+        } else {
+          switchTab('login');
+          document.getElementById('loginUsername').value = username;
+        }
+      }, 800);
+    } else {
+      showAuthAlert(data.error || data.message || '注册失败，用户名可能已被占用');
+    }
+  } catch {
+    showAuthAlert('网络错误，请检查服务器是否在线');
+  } finally {
+    setLoading('regSubmitBtn', false);
+  }
+}
+
+// ============================================================
+//  Enter / Leave App
+// ============================================================
+function enterApp(username) {
+  console.log('[enterApp] called with username:', username);
+  currentUser = { username };
+
+  const badge = document.getElementById('userBadge');
+  const initial = username.charAt(0).toUpperCase();
+  badge.textContent = initial;
+  badge.title = `${username}（点击登出）`;
+
+  console.log('[enterApp] calling showAppPage');
+  showAppPage();
+  console.log('[enterApp] showAppPage done, appPage display:', document.getElementById('appPage').style.display);
+
+  checkHealth();
+  loadSessions();
+
+  // focus 需要元素可见后才生效
+  setTimeout(() => {
+    const input = document.getElementById('inputArea');
+    if (input) input.focus();
+  }, 100);
+}
+
+async function doLogout() {
+  if (!confirm('确定要登出吗？')) return;
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch {}
+  localStorage.removeItem('chatUsername');
+  currentUser = null;
+  messages = [];
+  chatSessions = [];
+  currentSession = 0;
+  document.getElementById('appPage').classList.remove('page-fade-in');
+  showAuthPage();
+  // Reset form
+  document.getElementById('loginForm').reset();
+  document.getElementById('registerForm').reset();
+  switchTab('login');
+  showToast('已安全登出');
+}
+
+
+// ============================================================
+//  Chat State
 // ============================================================
 const API_URL = '/api/chat/stream';
 
-let messages      = [];    // {role, content}
+let messages      = [];
 let isStreaming   = false;
 let currentReader = null;
 let currentModel  = 'claude-sonnet-4-5-20250929';
@@ -670,26 +1291,18 @@ let chatSessions  = [];
 let currentSession = 0;
 
 // ============================================================
-//  Init
+//  Health Check
 // ============================================================
-window.addEventListener('DOMContentLoaded', () => {
-  checkHealth();
-  loadSessions();
-  document.getElementById('inputArea').focus();
-});
-
 async function checkHealth() {
   const dot  = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   try {
-    const r = await fetch('/api/health');
+    const r = await fetch('/api/health', { credentials: 'same-origin' });
     if (r.ok) {
       const d = await r.json();
       dot.className  = 'dot connected';
       text.textContent = d.model || 'connected';
-    } else {
-      throw new Error();
-    }
+    } else throw new Error();
   } catch {
     dot.className  = 'dot error';
     text.textContent = '服务器未响应';
@@ -697,18 +1310,19 @@ async function checkHealth() {
 }
 
 // ============================================================
-//  Session management (localStorage)
+//  Session management
 // ============================================================
 function loadSessions() {
   try {
-    const stored = JSON.parse(localStorage.getItem('chatSessions') || '[]');
-    chatSessions = stored;
+    const key = `chatSessions_${currentUser?.username || 'guest'}`;
+    chatSessions = JSON.parse(localStorage.getItem(key) || '[]');
   } catch { chatSessions = []; }
   renderSessionList();
 }
 
 function saveSessions() {
-  localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
+  const key = `chatSessions_${currentUser?.username || 'guest'}`;
+  localStorage.setItem(key, JSON.stringify(chatSessions));
 }
 
 function renderSessionList() {
@@ -750,10 +1364,7 @@ function renderMessages() {
   const container = document.getElementById('messagesContainer');
   const empty     = document.getElementById('emptyState');
   empty.style.display = messages.length ? 'none' : 'flex';
-  
-  // Remove all message rows
   container.querySelectorAll('.message-row').forEach(el => el.remove());
-
   messages.forEach(msg => appendMessageEl(msg.role, msg.content));
 }
 
@@ -766,14 +1377,16 @@ function appendMessageEl(role, content) {
 
   const avatar = document.createElement('div');
   avatar.className = `avatar ${role}`;
-  avatar.textContent = role === 'user' ? 'U' : '✦';
+  avatar.textContent = role === 'user'
+    ? (currentUser?.username?.charAt(0).toUpperCase() || 'U')
+    : '✦';
 
   const wrap   = document.createElement('div');
   wrap.className = 'bubble-wrap';
 
   const name   = document.createElement('div');
   name.className = 'sender-name';
-  name.textContent = role === 'user' ? '你' : 'AI';
+  name.textContent = role === 'user' ? (currentUser?.username || '你') : 'AI';
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
@@ -789,20 +1402,13 @@ function appendMessageEl(role, content) {
   return bubble;
 }
 
-// Simple markdown-like rendering
 function renderContent(text) {
   if (!text) return '';
-  // Code blocks
-  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => 
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
     `<pre><code>${escapeHtml(code.trim())}</code></pre>`);
-  // Inline code
   text = text.replace(/`([^`]+)`/g, (_, c) => `<code>${escapeHtml(c)}</code>`);
-  // Bold
   text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  // Italic
   text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  // Escape remaining HTML (but not our tags)
-  // Already handled by escapeHtml above for code blocks
   return text;
 }
 
@@ -825,17 +1431,14 @@ async function sendMessage() {
   const text     = textarea.value.trim();
   if (!text) return;
 
-  // Clear input
   textarea.value = '';
   autoResize(textarea);
 
-  // Ensure we have a session
   if (chatSessions.length === 0) {
     chatSessions.push({ title: text.slice(0, 24), messages: [] });
     currentSession = 0;
   }
 
-  // Add user message
   messages.push({ role: 'user', content: text });
   if (currentSession < chatSessions.length) {
     chatSessions[currentSession].messages = messages.slice();
@@ -850,30 +1453,22 @@ async function sendMessage() {
   appendMessageEl('user', text);
   setStreaming(true);
 
-  // Add AI placeholder
   const container = document.getElementById('messagesContainer');
   const aiRow = document.createElement('div');
   aiRow.className = 'message-row ai';
-
   const aiAvatar = document.createElement('div');
   aiAvatar.className = 'avatar ai';
   aiAvatar.textContent = '✦';
-
   const aiWrap = document.createElement('div');
   aiWrap.className = 'bubble-wrap';
-
   const aiName = document.createElement('div');
   aiName.className = 'sender-name';
   aiName.textContent = 'AI';
-
   const aiBubble = document.createElement('div');
   aiBubble.className = 'bubble';
   aiBubble.innerHTML = `<div class="typing-indicator">
-    <div class="typing-dot"></div>
-    <div class="typing-dot"></div>
-    <div class="typing-dot"></div>
+    <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
   </div>`;
-
   aiWrap.appendChild(aiName);
   aiWrap.appendChild(aiBubble);
   aiRow.appendChild(aiAvatar);
@@ -885,13 +1480,17 @@ async function sendMessage() {
 
   try {
     const resp = await fetch(API_URL, {
+      credentials: 'same-origin',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: currentModel,
-        messages: messages
-      })
+      body: JSON.stringify({ model: currentModel, messages })
     });
+
+    if (resp.status === 401) {
+      aiBubble.innerHTML = `<span style="color:var(--danger)">登录已过期，请重新登录</span>`;
+      setTimeout(() => { doLogout(); }, 1500);
+      return;
+    }
 
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
@@ -908,44 +1507,29 @@ async function sendMessage() {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
         const data = trimmed.slice(6);
-        if (data === '[DONE]') {
-          // Stream complete
-          break;
-        }
-
+        if (data === '[DONE]') break;
         try {
           const parsed = JSON.parse(data);
-          if (parsed.error) {
-            aiText += `\n[错误: ${parsed.error}]`;
-          } else if (parsed.token) {
-            aiText += parsed.token;
-          }
-          // Update UI
+          if (parsed.error)       aiText += `\n[错误: ${parsed.error}]`;
+          else if (parsed.token)  aiText += parsed.token;
           aiBubble.innerHTML = renderContent(aiText) + '<span class="cursor"></span>';
           scrollToBottom(false);
-        } catch (e) {
-          // Ignore parse errors
-        }
+        } catch {}
       }
     }
 
-    // Finalize
     aiBubble.innerHTML = renderContent(aiText || '（无响应）');
-
-    // Save AI message
     messages.push({ role: 'assistant', content: aiText });
     if (currentSession < chatSessions.length) {
       chatSessions[currentSession].messages = messages.slice();
       saveSessions();
     }
-
   } catch (err) {
     if (err.name === 'AbortError') {
       aiBubble.innerHTML = renderContent(aiText) + '<span style="color:var(--muted);font-size:12px"> [已停止]</span>';
@@ -965,9 +1549,7 @@ async function sendMessage() {
 }
 
 function stopStream() {
-  if (currentReader) {
-    currentReader.cancel();
-  }
+  if (currentReader) currentReader.cancel();
 }
 
 function setStreaming(val) {
@@ -990,10 +1572,7 @@ function setStreaming(val) {
 //  UI helpers
 // ============================================================
 function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 }
 
 function autoResize(el) {
@@ -1020,7 +1599,7 @@ function clearChat() {
 }
 
 function copyAll() {
-  const text = messages.map(m => `${m.role === 'user' ? '你' : 'AI'}: ${m.content}`).join('\n\n');
+  const text = messages.map(m => `${m.role === 'user' ? (currentUser?.username || '你') : 'AI'}: ${m.content}`).join('\n\n');
   navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板'));
 }
 
@@ -1034,12 +1613,8 @@ function updateModel() {
       opt.value = m; opt.textContent = m; opt.selected = true;
       sel.insertBefore(opt, sel.lastElementChild);
       sel.value = m;
-    } else {
-      sel.value = currentModel;
-    }
-  } else {
-    currentModel = sel.value;
-  }
+    } else { sel.value = currentModel; }
+  } else { currentModel = sel.value; }
 }
 
 function showToast(msg) {

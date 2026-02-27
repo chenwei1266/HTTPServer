@@ -1,22 +1,11 @@
 /**
- * examples/chat_main.cpp
+ * chat_main.cpp
  *
- * 完整的聊天服务器示例，集成了：
- * - HttpServer (基于 muduo)
- * - SSE 流式推送
- * - LLM 流式调用 (Ollama / OpenAI 兼容 / Anthropic 中转)
- * - 聊天 UI 内嵌
- *
- * 编译：
- *   mkdir build && cd build
- *   cmake .. && make -j4
- *
- * 运行：
- *   export ANTHROPIC_AUTH_TOKEN="sk-xxx"
- *   ./chat_server [port]   # 默认 8080
- *
- * 访问：
- *   http://localhost:8080
+ * 完整的聊天服务器，集成：
+ * - 用户注册/登录/登出 (Session)
+ * - 多会话管理 (CRUD)
+ * - 消息持久化 (MySQL)
+ * - SSE 流式推送 + LLM 调用
  */
 
 #include <iostream>
@@ -28,9 +17,17 @@
 #include "http/HttpServer.h"
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
-#include "./sse/ChatSseHandler.h"
+#include "session/SessionManager.h"
+#include "session/SessionStorage.h"
+#include "utils/MysqlUtil.h"
 
-// ─── 内嵌的 HTML 页面（从文件读取或硬编码）─────────────────
+#include "sse/ChatSseHandler.h"
+#include "auth/AuthHandler.h"
+#include "auth/AuthMiddleware.h"
+#include "api/ConversationHandler.h"
+#include "api/MessageHandler.h"
+
+// ─── HTML 页面 ───────────────────────────────────────────────
 static std::string g_htmlPage;
 
 static bool loadHtml(const std::string& path)
@@ -43,7 +40,6 @@ static bool loadHtml(const std::string& path)
     return true;
 }
 
-// 安全获取环境变量
 static std::string getEnv(const char* name, const std::string& defaultVal = "")
 {
     const char* val = std::getenv(name);
@@ -56,47 +52,50 @@ int main(int argc, char* argv[])
     int port = 8080;
     if (argc > 1) port = std::atoi(argv[1]);
 
-    if (!loadHtml("./chat_ui.html") && !loadHtml("../examples/chat_ui.html"))
+    // ─── 加载 HTML ───────────────────────────────────────
+    if (!loadHtml("./chat_ui.html") && !loadHtml("../chat_ui/chat_ui.html"))
     {
         g_htmlPage = R"(<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<title>Chat</title>
-<style>body{background:#0e0e10;color:#e8e8ed;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;}</style>
-</head><body>
-<div style="text-align:center">
-<h2>Chat UI</h2>
-<p>请将 chat_ui.html 放到运行目录下</p>
-<p style="color:#8888a0;font-size:13px">或在编译时内嵌 HTML 内容</p>
-</div>
-</body></html>)";
+<html><head><meta charset="UTF-8"><title>Chat</title>
+<style>body{background:#0e0e10;color:#e8e8ed;display:flex;align-items:center;
+justify-content:center;height:100vh;font-family:sans-serif;}</style>
+</head><body><div style="text-align:center">
+<h2>Chat UI</h2><p>chat_ui.html not found</p>
+</div></body></html>)";
     }
 
-    // ─── LLM 配置 ─────────────────────────────────────────
-    llm::LlmConfig llmCfg;
+    // ─── 数据库初始化 ────────────────────────────────────
+    std::string dbHost = getEnv("DB_HOST", "localhost");
+    std::string dbUser = getEnv("DB_USER", "root");
+    std::string dbPass = getEnv("DB_PASS", "123456");
+    std::string dbName = getEnv("DB_NAME", "chat_app");
+    int dbPoolSize     = std::atoi(getEnv("DB_POOL_SIZE", "10").c_str());
 
-    // === RenRen AI 中转站 (OpenAI 兼容协议) ===
-    // 从环境变量读取，支持运行时配置
+    http::MysqlUtil::init(dbHost, dbUser, dbPass, dbName, dbPoolSize);
+    std::cout << "[DB] Connected to " << dbHost << "/" << dbName
+              << " (pool=" << dbPoolSize << ")\n";
+
+    // ─── LLM 配置 ───────────────────────────────────────
+    llm::LlmConfig llmCfg;
     llmCfg.baseUrl   = getEnv("ANTHROPIC_BASE_URL", "https://renrenai.chat");
     llmCfg.apiKey    = getEnv("ANTHROPIC_AUTH_TOKEN", "sk-CmLMhLWnfIteONPsuwp1wNgB1ZVdyQWtOcODleixYkILKPxt");
     llmCfg.model     = getEnv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929");
-    llmCfg.isOpenAI  = true;   // 中转站走 OpenAI 兼容协议
-    llmCfg.maxTokens = 4096;   // Claude 必须指定
+    llmCfg.isOpenAI  = true;
+    llmCfg.maxTokens = 4096;
     llmCfg.timeout   = 120;
 
-    // 去掉 baseUrl 末尾的斜杠（如果有）
     while (!llmCfg.baseUrl.empty() && llmCfg.baseUrl.back() == '/')
         llmCfg.baseUrl.pop_back();
 
     std::cout << "╔══════════════════════════════════════╗\n"
               << "║   LLM Chat Server (SSE Mode)         ║\n"
               << "╠══════════════════════════════════════╣\n"
-              << "║ Port : " << port << std::string(30 - std::to_string(port).size(), ' ') << "║\n"
+              << "║ Port : " << port
+              << std::string(30 - std::to_string(port).size(), ' ') << "║\n"
               << "║ Model: " << llmCfg.model.substr(0, 30)
               << std::string(30 - std::min((int)llmCfg.model.size(), 30), ' ') << "║\n"
               << "║ LLM  : " << llmCfg.baseUrl.substr(0, 30)
               << std::string(30 - std::min((int)llmCfg.baseUrl.size(), 30), ' ') << "║\n"
-              << "║ Key  : " << llmCfg.apiKey.substr(0, 8) << "..."
-              << std::string(21, ' ') << "║\n"
               << "╚══════════════════════════════════════╝\n"
               << "  Open: http://localhost:" << port << "\n\n";
 
@@ -104,27 +103,79 @@ int main(int argc, char* argv[])
     http::HttpServer server(port, "ChatServer");
     server.setThreadNum(4);
 
-    // ─── 路由注册 ─────────────────────────────────────────
+    // ─── Session 管理器 ──────────────────────────────────
+    auto sessionStorage = std::make_unique<http::session::MemorySessionStorage>();
+    auto sessionManager = std::make_unique<http::session::SessionManager>(
+        std::move(sessionStorage));
+    http::session::SessionManager* sm = sessionManager.get();
+    server.setSessionManager(std::move(sessionManager));
 
+    // ─── 路由注册 ────────────────────────────────────────
+
+    // 首页
     server.Get("/", [](const http::HttpRequest&, http::HttpResponse* resp) {
         resp->setStatusCode(http::HttpResponse::k200Ok);
         resp->setContentType("text/html; charset=utf-8");
         resp->setBody(g_htmlPage);
     });
 
-    auto chatHandler = std::make_shared<http::sse::ChatSseHandler>(llmCfg);
-    server.Post("/api/chat/stream", chatHandler);
-
+    // 健康检查
     server.Get("/api/health", [&llmCfg](const http::HttpRequest&, http::HttpResponse* resp) {
         resp->setStatusCode(http::HttpResponse::k200Ok);
         resp->setContentType("application/json");
-        resp->addHeader("Access-Control-Allow-Origin", "*");
-        std::string body = "{\"status\":\"ok\",\"model\":\"" + llmCfg.model
-            + "\",\"backend\":\"" + llmCfg.baseUrl + "\"}";
-        resp->setBody(body);
+        resp->setBody(R"({"status":"ok","model":")" + llmCfg.model + R"("})");
     });
 
-    // ─── 启动 ─────────────────────────────────────────────
+    // ─── Session 检查接口 ────────────────────────────────
+    // GET /api/auth/me
+    //   已登录 → 200  {"ok":true,"username":"xxx"}
+    //   未登录 → 401  {"error":"Unauthorized"}
+    // 与其他 Handler 保持一致，使用 AuthMiddleware::check()
+    server.Get("/api/auth/me", [sm](const http::HttpRequest& req, http::HttpResponse* resp) {
+        resp->setContentType("application/json");
+
+        int64_t userId = 0;
+        if (!auth::AuthMiddleware::check(req, resp, sm, userId))
+            return; // check() 内部已设置 401 响应体，直接 return
+
+        // 复用同一个 session，取出登录时存入的 username
+        std::string username;
+        auto session = sm->getSession(req, resp);
+        if (session)
+            username = session->getValue("username");
+
+        resp->setStatusCode(http::HttpResponse::k200Ok);
+        resp->setBody(R"({"ok":true,"username":")" + username + R"("})");
+    });
+
+    // 认证路由
+    server.Post("/api/auth/register", std::make_shared<auth::RegisterHandler>(sm));
+    server.Post("/api/auth/login",    std::make_shared<auth::LoginHandler>(sm));
+    server.Post("/api/auth/logout",   std::make_shared<auth::LogoutHandler>(sm));
+
+    // 会话 CRUD
+    auto convListHandler   = std::make_shared<api::ConversationListHandler>(sm);
+    auto convDetailHandler = std::make_shared<api::ConversationDetailHandler>(sm);
+
+    server.Get("/api/conversations",  convListHandler);
+    server.Post("/api/conversations", convListHandler);
+
+    // 正则路由: /api/conversations/:id
+    server.addRoute(http::HttpRequest::kPut,
+                    "/api/conversations/:id", convDetailHandler);
+    server.addRoute(http::HttpRequest::kDelete,
+                    "/api/conversations/:id", convDetailHandler);
+
+    // 消息历史: GET /api/conversations/:id/messages
+    auto msgHandler = std::make_shared<api::MessageHandler>(sm);
+    server.addRoute(http::HttpRequest::kGet,
+                    "/api/conversations/:id/messages", msgHandler);
+
+    // SSE 聊天流
+    auto chatHandler = std::make_shared<http::sse::ChatSseHandler>(llmCfg, sm);
+    server.Post("/api/chat/stream", chatHandler);
+
+    // ─── 启动 ────────────────────────────────────────────
     server.start();
 
     return 0;

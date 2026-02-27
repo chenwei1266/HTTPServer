@@ -20,8 +20,8 @@ void HttpResponse::appendToBuffer(muduo::net::Buffer* outputBuf) const
     }
     else
     {
-        //snprintf(buf, sizeof buf, "Content-Length: %zd\r\n", body_.size());
-        //outputBuf->append(buf);
+        snprintf(buf, sizeof buf, "Content-Length: %zd\r\n", body_.size());
+        outputBuf->append(buf);
         outputBuf->append("Connection: Keep-Alive\r\n");
     }
 

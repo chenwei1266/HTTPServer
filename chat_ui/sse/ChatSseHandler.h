@@ -3,12 +3,14 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <mutex>
-#include <map>
 
 #include "../include/http/HttpRequest.h"
 #include "../include/http/HttpResponse.h"
 #include "../include/router/RouterHandler.h"
+#include "../include/session/SessionManager.h"
+#include "../auth/AuthMiddleware.h"
+#include "../dao/ConversationDao.h"
+#include "../dao/MessageDao.h"
 #include "SseManager.h"
 #include "LlmClient.h"
 
@@ -20,13 +22,20 @@ namespace sse
 class ChatSseHandler : public router::RouterHandler
 {
 public:
-    explicit ChatSseHandler(const llm::LlmConfig& config = llm::LlmConfig{})
+    explicit ChatSseHandler(const llm::LlmConfig& config = llm::LlmConfig{},
+                            session::SessionManager* sm = nullptr)
         : llmConfig_(config)
+        , sessionManager_(sm)
     {}
+
+    void setSessionManager(session::SessionManager* sm)
+    {
+        sessionManager_ = sm;
+    }
 
     void handle(const HttpRequest& req, HttpResponse* resp) override
     {
-        // OPTIONS 预检请求（CORS）
+        // OPTIONS 预检
         if (req.method() == HttpRequest::kOptions)
         {
             resp->setStatusCode(HttpResponse::k200Ok);
@@ -36,95 +45,152 @@ public:
             return;
         }
 
-        // 只接受 POST
         if (req.method() != HttpRequest::kPost)
         {
             resp->setStatusCode(HttpResponse::k400BadRequest);
-            resp->setBody("{\"error\":\"Method not allowed\"}");
+            resp->setBody(R"({"error":"Method not allowed"})");
             return;
         }
 
-        // 解析请求体
         std::string body = req.getBody();
         if (body.empty())
         {
             resp->setStatusCode(HttpResponse::k400BadRequest);
-            resp->setBody("{\"error\":\"Empty body\"}");
+            resp->setBody(R"({"error":"Empty body"})");
             return;
         }
 
-        // 解析消息列表
         auto messages = parseMessages(body);
         if (messages.empty())
         {
             resp->setStatusCode(HttpResponse::k400BadRequest);
-            resp->setBody("{\"error\":\"No messages provided\"}");
+            resp->setBody(R"({"error":"No messages provided"})");
             return;
         }
 
-        // 获取连接
+        // ─── 鉴权 & 会话 ─────────────────────────────────
+        int64_t userId = 0;
+        int64_t conversationId = 0;
+
+        if (sessionManager_)
+        {
+            userId = auth::AuthMiddleware::getUserId(req, resp, sessionManager_);
+        }
+
+        // 从请求体提取 conversation_id
+        std::string convIdStr = extractField(body, "conversation_id");
+        if (!convIdStr.empty())
+        {
+            try { conversationId = std::stoll(convIdStr); }
+            catch (...) { conversationId = 0; }
+        }
+
+        // 已登录用户：校验或自动创建会话
+        if (userId > 0)
+        {
+            if (conversationId > 0)
+            {
+                auto conv = dao::ConversationDao::findById(conversationId, userId);
+                if (conv.id == 0)
+                    conversationId = 0; // 不属于该用户
+            }
+
+            if (conversationId == 0)
+            {
+                // 用最后一条 user 消息的前 30 字符作为标题
+                std::string title = "New Chat";
+                for (auto it = messages.rbegin(); it != messages.rend(); ++it)
+                {
+                    if (it->role == "user" && !it->content.empty())
+                    {
+                        title = it->content.substr(0, 30);
+                        break;
+                    }
+                }
+                conversationId = dao::ConversationDao::create(userId, title);
+            }
+
+            // 将本次 user 消息写入数据库
+            if (conversationId > 0)
+            {
+                for (auto& m : messages)
+                {
+                    if (m.role == "user")
+                        dao::MessageDao::insert(conversationId, "user", m.content);
+                }
+            }
+        }
+
+        // ─── SSE 握手 ────────────────────────────────────
         auto conn = conn_;
         if (!conn || !conn->connected())
         {
             resp->setStatusCode(HttpResponse::k500InternalServerError);
-            resp->setBody("{\"error\":\"Connection lost\"}");
+            resp->setBody(R"({"error":"Connection lost"})");
             return;
         }
 
-        // 发送 SSE 握手头
         conn->send(buildSseHandshake());
 
-        // 注册到 SseManager
         std::string connId = SseManager::instance().addConnection(conn);
         auto sseConn = SseManager::instance().getConnection(connId);
         if (!sseConn)
-        {
             return;
+
+        // 如果有 conversation_id，先推送给前端
+        if (conversationId > 0)
+        {
+            sseConn->send(R"({"conversation_id":)" + std::to_string(conversationId) + "}", "meta");
         }
 
-        // 确定模型（可从请求体中覆盖）
+        // ─── LLM 配置 ───────────────────────────────────
         llm::LlmConfig cfg = llmConfig_;
         std::string modelOverride = extractField(body, "model");
         if (!modelOverride.empty())
-        {
             cfg.model = modelOverride;
-        }
 
-        // 关键修复：用 shared_ptr 创建 LlmClient，让 detach 线程持有所有权
-        // 避免局部 LlmClient 析构后线程访问悬空成员
+        // ─── 流式调用 ───────────────────────────────────
+        // 用 shared_ptr 收集完整回复
+        auto fullReply = std::make_shared<std::string>();
+        auto capturedConvId = conversationId;
+        auto capturedUserId = userId;
+
         auto client = std::make_shared<llm::LlmClient>(cfg);
 
         client->streamChat(
             messages,
             // onToken
-            [sseConn, connId](const std::string& token) {
+            [sseConn, connId, fullReply](const std::string& token) {
                 if (sseConn && !sseConn->isClosed())
                 {
                     std::string escaped = escapeJson(token);
-                    sseConn->send("{\"token\":\"" + escaped + "\"}");
+                    sseConn->send(R"({"token":")" + escaped + R"("})");
                 }
+                fullReply->append(token);
             },
             // onDone
-            [sseConn, connId, client]() {
-                // 捕获 client shared_ptr 延长生命周期
-                if (sseConn)
+            [sseConn, connId, client, fullReply, capturedConvId, capturedUserId]() {
+                // 将 assistant 回复写入数据库
+                if (capturedUserId > 0 && capturedConvId > 0 && !fullReply->empty())
                 {
-                    sseConn->sendDone();
-                    // 不要立即 close/shutdown，让客户端收到 [DONE] 后自行断开
+                    dao::MessageDao::insert(capturedConvId, "assistant", *fullReply);
+                    dao::ConversationDao::touch(capturedConvId);
                 }
+
+                if (sseConn)
+                    sseConn->sendDone();
+
                 SseManager::instance().removeConnection(connId);
             },
             // onError
             [sseConn, connId, client](const std::string& error) {
                 if (sseConn && !sseConn->isClosed())
-                {
-                    sseConn->send("{\"error\":\"" + escapeJson(error) + "\"}", "error");
-                }
+                    sseConn->send(R"({"error":")" + escapeJson(error) + R"("})", "error");
+
                 SseManager::instance().removeConnection(connId);
             }
         );
 
-        // 标记为 SSE 升级，HttpServer 跳过默认响应发送
         resp->setStatusCode(HttpResponse::k200Ok);
         resp->markAsSseUpgraded();
     }
@@ -143,7 +209,9 @@ private:
         ++pos;
         while (pos < body.size())
         {
-            while (pos < body.size() && (body[pos] == ' ' || body[pos] == '\n' || body[pos] == '\r' || body[pos] == '\t')) ++pos;
+            while (pos < body.size() && (body[pos] == ' ' || body[pos] == '\n'
+                   || body[pos] == '\r' || body[pos] == '\t'))
+                ++pos;
 
             if (pos >= body.size()) break;
             if (body[pos] == ']') break;
@@ -160,7 +228,8 @@ private:
                 messages.push_back(msg);
 
             pos = objEnd + 1;
-            while (pos < body.size() && body[pos] != '{' && body[pos] != ']') ++pos;
+            while (pos < body.size() && body[pos] != '{' && body[pos] != ']')
+                ++pos;
         }
 
         return messages;
@@ -234,7 +303,8 @@ private:
     }
 
 private:
-    llm::LlmConfig llmConfig_;
+    llm::LlmConfig             llmConfig_;
+    session::SessionManager*   sessionManager_;
 };
 
 } // namespace sse

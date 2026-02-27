@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <mutex>
+#include <type_traits>
 #include <cppconn/connection.h>
 #include <cppconn/prepared_statement.h>
 #include <cppconn/resultset.h>
@@ -38,7 +39,6 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         try 
         {
-            // 直接创建新的预处理语句，不使用缓存
             std::unique_ptr<sql::PreparedStatement> stmt(
                 conn_->prepareStatement(sql)
             );
@@ -58,7 +58,6 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         try 
         {
-            // 直接创建新的预处理语句，不使用缓存
             std::unique_ptr<sql::PreparedStatement> stmt(
                 conn_->prepareStatement(sql)
             );
@@ -72,26 +71,57 @@ public:
         }
     }
 
-    bool ping();  // 添加检测连接是否有效的方法
+    bool ping();
+
 private:
-     // 辅助函数：递归终止条件
+    // 递归终止
     void bindParams(sql::PreparedStatement*, int) {}
-    
-    // 辅助函数：绑定参数
-    template<typename T, typename... Args>
-    void bindParams(sql::PreparedStatement* stmt, int index, 
-                   T&& value, Args&&... args) 
-    {
-        stmt->setString(index, std::to_string(std::forward<T>(value)));
-        bindParams(stmt, index + 1, std::forward<Args>(args)...);
-    }
-    
-    // 特化 string 类型的参数绑定
+
+    // string 字面量 / const char* 重载（优先级最高，避免走数值模板）
     template<typename... Args>
-    void bindParams(sql::PreparedStatement* stmt, int index, 
-                   const std::string& value, Args&&... args) 
+    void bindParams(sql::PreparedStatement* stmt, int index,
+                    const char* value, Args&&... args)
     {
         stmt->setString(index, value);
+        bindParams(stmt, index + 1, std::forward<Args>(args)...);
+    }
+
+    // const std::string& 重载
+    template<typename... Args>
+    void bindParams(sql::PreparedStatement* stmt, int index,
+                    const std::string& value, Args&&... args)
+    {
+        stmt->setString(index, value);
+        bindParams(stmt, index + 1, std::forward<Args>(args)...);
+    }
+
+    // std::string& 重载（非 const，防止落入数值模板）
+    template<typename... Args>
+    void bindParams(sql::PreparedStatement* stmt, int index,
+                    std::string& value, Args&&... args)
+    {
+        stmt->setString(index, value);
+        bindParams(stmt, index + 1, std::forward<Args>(args)...);
+    }
+
+    // std::string&& 重载（右值）
+    template<typename... Args>
+    void bindParams(sql::PreparedStatement* stmt, int index,
+                    std::string&& value, Args&&... args)
+    {
+        stmt->setString(index, value);
+        bindParams(stmt, index + 1, std::forward<Args>(args)...);
+    }
+
+    // 数值类型通用模板（编译期拦截非数值、非字符串类型）
+    template<typename T, typename... Args>
+    void bindParams(sql::PreparedStatement* stmt, int index,
+                    T&& value, Args&&... args)
+    {
+        static_assert(std::is_arithmetic<std::remove_reference_t<T>>::value,
+                      "bindParams: unsupported parameter type, "
+                      "only std::string, const char*, and arithmetic types are allowed");
+        stmt->setString(index, std::to_string(std::forward<T>(value)));
         bindParams(stmt, index + 1, std::forward<Args>(args)...);
     }
 
