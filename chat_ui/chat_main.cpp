@@ -19,6 +19,7 @@
 #include "http/HttpResponse.h"
 #include "session/SessionManager.h"
 #include "session/SessionStorage.h"
+#include "session/RedisSessionStorage.h"  // 如果路径不对就调整
 #include "utils/MysqlUtil.h"
 
 #include "sse/ChatSseHandler.h"
@@ -104,7 +105,8 @@ justify-content:center;height:100vh;font-family:sans-serif;}</style>
     server.setThreadNum(4);
 
     // ─── Session 管理器 ──────────────────────────────────
-    auto sessionStorage = std::make_unique<http::session::MemorySessionStorage>();
+    std::string redisUri = getEnv("REDIS_URI", "tcp://127.0.0.1:6379");
+    auto sessionStorage = std::make_unique<http::session::RedisSessionStorage>(redisUri, 3600);
     auto sessionManager = std::make_unique<http::session::SessionManager>(
         std::move(sessionStorage));
     http::session::SessionManager* sm = sessionManager.get();

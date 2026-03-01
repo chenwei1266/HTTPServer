@@ -35,6 +35,14 @@ public:
     std::string getValue(const std::string&key) const;
     void remove(const std::string&key);
     void clear();
+    // 获取全部数据（供 RedisSessionStorage::save 使用）
+    const std::unordered_map<std::string, std::string>& getAllData() const
+    { return data_; }
+
+    // 批量设置数据，不触发 updateSession（供 load 重建时使用）
+    void setDataBatch(const std::unordered_map<std::string, std::string>& data)
+    { data_ = data; }
+
 private:
     std::string                                  sessionId_;
     std::unordered_map<std::string, std::string> data_;
