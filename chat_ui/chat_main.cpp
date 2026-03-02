@@ -5,7 +5,7 @@
  * - 用户注册/登录/登出 (Session)
  * - 多会话管理 (CRUD)
  * - 消息持久化 (MySQL)
- * - SSE 流式推送 + LLM 调用
+ * - SSE 流式推送 + 多模型工厂 (策略模式 + 注册式工厂)
  */
 
 #include <iostream>
@@ -19,7 +19,7 @@
 #include "http/HttpResponse.h"
 #include "session/SessionManager.h"
 #include "session/SessionStorage.h"
-#include "session/RedisSessionStorage.h"  // 如果路径不对就调整
+#include "session/RedisSessionStorage.h"
 #include "utils/MysqlUtil.h"
 
 #include "sse/ChatSseHandler.h"
@@ -27,6 +27,14 @@
 #include "auth/AuthMiddleware.h"
 #include "api/ConversationHandler.h"
 #include "api/MessageHandler.h"
+
+// ─── 多模型工厂（触发所有厂商自动注册）────────────────────
+#include "ai/ModelRegister.h"
+#include "ai/AIConfig.h"
+#include "ai/AIFactory.h"
+
+// ─── MCP 内置工具 ─────────────────────────────────────────────
+#include "mcp/BuiltinTools.h"
 
 // ─── HTML 页面 ───────────────────────────────────────────────
 static std::string g_htmlPage;
@@ -76,29 +84,59 @@ justify-content:center;height:100vh;font-family:sans-serif;}</style>
     std::cout << "[DB] Connected to " << dbHost << "/" << dbName
               << " (pool=" << dbPoolSize << ")\n";
 
-    // ─── LLM 配置 ───────────────────────────────────────
-    llm::LlmConfig llmCfg;
-    llmCfg.baseUrl   = getEnv("ANTHROPIC_BASE_URL", "https://renrenai.chat");
-    llmCfg.apiKey    = getEnv("ANTHROPIC_AUTH_TOKEN", "sk-CmLMhLWnfIteONPsuwp1wNgB1ZVdyQWtOcODleixYkILKPxt");
-    llmCfg.model     = getEnv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929");
-    llmCfg.isOpenAI  = true;
-    llmCfg.maxTokens = 4096;
-    llmCfg.timeout   = 120;
+    // ─── 多模型配置加载 ──────────────────────────────────
+    // 优先读 config.json，找不到则从环境变量构造默认配置
+    ai::AIConfig aiConfig;
+    bool configLoaded = aiConfig.load("./config.json") ||
+                        aiConfig.load("../chat_ui/config.json");
 
-    while (!llmCfg.baseUrl.empty() && llmCfg.baseUrl.back() == '/')
-        llmCfg.baseUrl.pop_back();
+    if (!configLoaded)
+    {
+        std::cout << "[AI] config.json not found, building config from env vars\n";
 
+        // 兼容原有环境变量，自动构造一个 "default" 厂商配置
+        // 这样不需要改任何部署脚本就能运行
+        ai::ModelConfig envCfg;
+        envCfg.baseUrl   = getEnv("ANTHROPIC_BASE_URL", "https://renrenai.chat");
+        envCfg.apiKey    = getEnv("ANTHROPIC_AUTH_TOKEN", "");
+        envCfg.model     = getEnv("ANTHROPIC_MODEL",      "claude-sonnet-4-5-20250929");
+        envCfg.maxTokens = 4096;
+        envCfg.timeout   = 120;
+
+        // 去掉末尾斜杠
+        while (!envCfg.baseUrl.empty() && envCfg.baseUrl.back() == '/')
+            envCfg.baseUrl.pop_back();
+
+        // 动态注册 "claude"，复用已读取的环境变量配置
+        // ClaudeStrategy = OpenAI 兼容接口，与原 LlmClient(isOpenAI=true) 行为一致
+        ai::AIFactory::instance().registerModel(
+            "claude",
+            [envCfg](const ai::ModelConfig&) {
+                return std::make_unique<ai::ClaudeStrategy>(envCfg);
+            }
+        );
+        aiConfig.setFallbackModel("claude");
+    }
+
+    // 打印已注册的模型列表
+    auto modelList = ai::AIFactory::instance().listModels();
     std::cout << "╔══════════════════════════════════════╗\n"
-              << "║   LLM Chat Server (SSE Mode)         ║\n"
+              << "║   LLM Chat Server (Multi-Model SSE)  ║\n"
               << "╠══════════════════════════════════════╣\n"
-              << "║ Port : " << port
-              << std::string(30 - std::to_string(port).size(), ' ') << "║\n"
-              << "║ Model: " << llmCfg.model.substr(0, 30)
-              << std::string(30 - std::min((int)llmCfg.model.size(), 30), ' ') << "║\n"
-              << "║ LLM  : " << llmCfg.baseUrl.substr(0, 30)
-              << std::string(30 - std::min((int)llmCfg.baseUrl.size(), 30), ' ') << "║\n"
+              << "║ Port   : " << port
+              << std::string(28 - std::to_string(port).size(), ' ') << "║\n"
+              << "║ Default: " << aiConfig.defaultModel().substr(0, 28)
+              << std::string(28 - std::min((int)aiConfig.defaultModel().size(), 28), ' ') << "║\n"
+              << "║ Models : ";
+    std::string modelStr;
+    for (auto& m : modelList) modelStr += m + " ";
+    std::cout << modelStr.substr(0, 28)
+              << std::string(28 - std::min((int)modelStr.size(), 28), ' ') << "║\n"
               << "╚══════════════════════════════════════╝\n"
               << "  Open: http://localhost:" << port << "\n\n";
+
+    // ─── 注册 MCP 内置工具 ───────────────────────────────
+    mcp::registerBuiltinTools();
 
     // ─── 创建 HTTP Server ────────────────────────────────
     http::HttpServer server(port, "ChatServer");
@@ -121,26 +159,31 @@ justify-content:center;height:100vh;font-family:sans-serif;}</style>
         resp->setBody(g_htmlPage);
     });
 
-    // 健康检查
-    server.Get("/api/health", [&llmCfg](const http::HttpRequest&, http::HttpResponse* resp) {
+    // 健康检查（新增返回可用模型列表）
+    server.Get("/api/health", [](const http::HttpRequest&, http::HttpResponse* resp) {
         resp->setStatusCode(http::HttpResponse::k200Ok);
         resp->setContentType("application/json");
-        resp->setBody(R"({"status":"ok","model":")" + llmCfg.model + R"("})");
+
+        auto models = ai::AIFactory::instance().listModels();
+        std::string modelsJson = "[";
+        for (size_t i = 0; i < models.size(); ++i)
+        {
+            if (i > 0) modelsJson += ",";
+            modelsJson += "\"" + models[i] + "\"";
+        }
+        modelsJson += "]";
+
+        resp->setBody(R"({"status":"ok","models":)" + modelsJson + "}");
     });
 
-    // ─── Session 检查接口 ────────────────────────────────
-    // GET /api/auth/me
-    //   已登录 → 200  {"ok":true,"username":"xxx"}
-    //   未登录 → 401  {"error":"Unauthorized"}
-    // 与其他 Handler 保持一致，使用 AuthMiddleware::check()
+    // Session 检查接口（不变）
     server.Get("/api/auth/me", [sm](const http::HttpRequest& req, http::HttpResponse* resp) {
         resp->setContentType("application/json");
 
         int64_t userId = 0;
         if (!auth::AuthMiddleware::check(req, resp, sm, userId))
-            return; // check() 内部已设置 401 响应体，直接 return
+            return;
 
-        // 复用同一个 session，取出登录时存入的 username
         std::string username;
         auto session = sm->getSession(req, resp);
         if (session)
@@ -150,31 +193,30 @@ justify-content:center;height:100vh;font-family:sans-serif;}</style>
         resp->setBody(R"({"ok":true,"username":")" + username + R"("})");
     });
 
-    // 认证路由
+    // 认证路由（不变）
     server.Post("/api/auth/register", std::make_shared<auth::RegisterHandler>(sm));
     server.Post("/api/auth/login",    std::make_shared<auth::LoginHandler>(sm));
     server.Post("/api/auth/logout",   std::make_shared<auth::LogoutHandler>(sm));
 
-    // 会话 CRUD
+    // 会话 CRUD（不变）
     auto convListHandler   = std::make_shared<api::ConversationListHandler>(sm);
     auto convDetailHandler = std::make_shared<api::ConversationDetailHandler>(sm);
 
     server.Get("/api/conversations",  convListHandler);
     server.Post("/api/conversations", convListHandler);
 
-    // 正则路由: /api/conversations/:id
     server.addRoute(http::HttpRequest::kPut,
                     "/api/conversations/:id", convDetailHandler);
     server.addRoute(http::HttpRequest::kDelete,
                     "/api/conversations/:id", convDetailHandler);
 
-    // 消息历史: GET /api/conversations/:id/messages
     auto msgHandler = std::make_shared<api::MessageHandler>(sm);
     server.addRoute(http::HttpRequest::kGet,
                     "/api/conversations/:id/messages", msgHandler);
 
-    // SSE 聊天流
-    auto chatHandler = std::make_shared<http::sse::ChatSseHandler>(llmCfg, sm);
+    // ─── SSE 聊天流（接入多模型工厂）────────────────────
+    // ChatSseHandler 现在接收 AIConfig 而不是 LlmConfig
+    auto chatHandler = std::make_shared<http::sse::ChatSseHandler>(aiConfig, sm);
     server.Post("/api/chat/stream", chatHandler);
 
     // ─── 启动 ────────────────────────────────────────────

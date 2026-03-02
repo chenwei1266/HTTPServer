@@ -1,0 +1,37 @@
+{
+  "default_model": "claude",
+
+  "models": {
+    "claude": {
+      "api_key":    "sk-CmLMhLWnfIteONPsuwp1wNgB1ZVdyQWtOcODleixYkILKPxt",
+      "base_url":   "https://renrenai.chat",
+      "model":      "claude-sonnet-4-5-20250929",
+      "max_tokens": 4096,
+      "timeout":    120
+    },
+
+    "qwen": {
+      "api_key":    "your-dashscope-api-key",
+      "base_url":   "https://dashscope.aliyuncs.com",
+      "model":      "qwen-plus",
+      "max_tokens": 4096,
+      "timeout":    120
+    },
+
+    "doubao": {
+      "api_key":    "your-volcengine-api-key",
+      "base_url":   "https://ark.cn-beijing.volces.com",
+      "model":      "ep-20250101000000-xxxxx",
+      "max_tokens": 4096,
+      "timeout":    120
+    },
+
+    "wenxin": {
+      "api_key":    "your-baidu-access-token",
+      "base_url":   "https://aip.baidubce.com",
+      "model":      "ernie-speed-128k",
+      "max_tokens": 2048,
+      "timeout":    60
+    }
+  }
+}
