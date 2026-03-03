@@ -1,53 +1,40 @@
 cmake_minimum_required(VERSION 3.10)
-project(MyMuduoTest)
+project(ChatServer)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# =========================================
-# 1. 设置 my_muduo 根目录
-# =========================================
-set(MY_MUDUO_ROOT "${CMAKE_SOURCE_DIR}/..")
+find_package(CURL REQUIRED)
+find_package(redis++ REQUIRED)
 
-# =========================================
-# 2. 头文件目录
-# =========================================
+set(HTTP_SERVER_ROOT "${CMAKE_SOURCE_DIR}/../HttpServer")
+
 include_directories(
-    ${MY_MUDUO_ROOT}
-    ${MY_MUDUO_ROOT}/include
+    ${HTTP_SERVER_ROOT}/include
 )
 
-# =========================================
-# 3. 递归收集 my_muduo 源码
-# （如果你还没做成静态库）
-# =========================================
-file(GLOB_RECURSE MY_MUDUO_SRCS
-    "${MY_MUDUO_ROOT}/src/*.cc"
-    "${MY_MUDUO_ROOT}/src/*.cpp"
-    "${MY_MUDUO_ROOT}/*.cc"
+file(GLOB_RECURSE HTTP_SERVER_SRCS
+    "${HTTP_SERVER_ROOT}/src/*.cpp"
 )
 
-# =========================================
-# 4. test_new_connection（服务器）
-# =========================================
-add_executable(test_new_connection
-    test_new_connection.cc
-    ${MY_MUDUO_SRCS}
+add_executable(chat_server
+    chat_main.cpp
+    ${HTTP_SERVER_SRCS}
 )
 
-target_link_libraries(test_new_connection
+target_link_libraries(chat_server
     muduo_net
     muduo_base
     pthread
+    ssl
+    crypto
+    mysqlcppconn
+    CURL::libcurl
+    redis++::redis++
 )
 
-# =========================================
-# 5. test_client（纯socket客户端）
-# =========================================
-add_executable(test_client
-    test_client.cc
-)
-
-target_link_libraries(test_client
-    pthread
+add_custom_command(TARGET chat_server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_SOURCE_DIR}/chat_ui.html
+        $<TARGET_FILE_DIR:chat_server>/chat_ui.html
 )

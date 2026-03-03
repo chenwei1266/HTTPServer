@@ -88,7 +88,7 @@ justify-content:center;height:100vh;font-family:sans-serif;}</style>
     // 优先读 config.json，找不到则从环境变量构造默认配置
     ai::AIConfig aiConfig;
     bool configLoaded = aiConfig.load("./config.json") ||
-                        aiConfig.load("../chat_ui/config.json");
+                        aiConfig.load("../config.json");
 
     if (!configLoaded)
     {
