@@ -1,0 +1,13 @@
+=== DB Connection Pool Benchmark ===
+Target: 127.0.0.1:8080
+Logged in as: benchuser
+Running gradual load test: 10 -> 50 -> 100 -> 200 concurrency
+Each stage runs for 30 seconds
+
+Running stage: 10 concurrent connections...
+Running stage: 50 concurrent connections...
+Running stage: 100 concurrent connections...
+Running stage: 200 concurrent connections...
+Re-login failed for stage 200
+
+Benchmark complete. Results saved in CSV format.

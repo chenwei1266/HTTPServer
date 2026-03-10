@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3 -Wall -Wextra CMakeFiles/bench_db.dir/bench_db.cpp.o -o bench_db 
