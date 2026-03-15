@@ -28,8 +28,10 @@
 
 #include "MCPToolRegistry.h"
 #include "../ai/AIStrategy.h"
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 #include <iostream>
 
@@ -204,14 +206,34 @@ private:
         TokenCallback onToken,
         DoneCallback  onDone)
     {
-        // 按中文友好的方式分段（每次推送一个字符或标点组）
-        // 实际上直接推整段也可以，前端会逐字追加
-        // 这里按 8 字符一批推送，保持与真实流式体验接近
-        const size_t batchSize = 8;
-        for (size_t i = 0; i < text.size(); i += batchSize)
+        // 注意：text 是 UTF-8，不能按字节切分，否则会出现乱码（�）
+        // 这里按“代码点”切分，保证每次推送都是合法 UTF-8 片段。
+        const size_t batchCodePoints = 8;
+        size_t i = 0;
+        while (i < text.size())
         {
-            size_t len = std::min(batchSize, text.size() - i);
-            onToken(text.substr(i, len));
+            size_t start = i;
+            size_t cp = 0;
+            while (i < text.size() && cp < batchCodePoints)
+            {
+                unsigned char c = static_cast<unsigned char>(text[i]);
+                size_t step = 1;
+                if ((c & 0x80) == 0x00) step = 1;          // 0xxxxxxx
+                else if ((c & 0xE0) == 0xC0) step = 2;     // 110xxxxx
+                else if ((c & 0xF0) == 0xE0) step = 3;     // 1110xxxx
+                else if ((c & 0xF8) == 0xF0) step = 4;     // 11110xxx
+
+                // 避免越界：异常 UTF-8 时退化为单字节推进
+                if (i + step > text.size()) step = 1;
+
+                i += step;
+                ++cp;
+            }
+
+            onToken(text.substr(start, i - start));
+
+            // 模拟流式节奏，避免内核合并后前端一次性显示
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
         }
         onDone();
     }
