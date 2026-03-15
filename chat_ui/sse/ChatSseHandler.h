@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <thread>
 #include <unordered_map>
 
 #include "../include/http/HttpRequest.h"
@@ -89,7 +90,7 @@ public:
             userId = auth::AuthMiddleware::getUserId(req, resp, sessionManager_);
         }
 
-        std::string convIdStr = extractField(body, "conversation_id");
+        std::string convIdStr = extractNumber(body, "conversation_id");
         if (!convIdStr.empty())
         {
             try { conversationId = std::stoll(convIdStr); }
@@ -231,51 +232,54 @@ public:
         auto strategyPtr = std::shared_ptr<ai::AIStrategy>(std::move(strategy));
         auto agentPtr    = std::make_shared<mcp::MCPAgent>(3); // 最多 3 轮工具调用
 
-        agentPtr->chat(
-            strategyPtr.get(),
-            messages,
-            // onToken：通过 publishToUser 推送（分布式模式走 Redis，单机直接写连接）
-            [sseConn, fullReply, capturedUserIdStr, connId](const std::string& token) {
-                std::string data = R"({"token":")" + escapeJson(token) + R"("})";
-                if (!capturedUserIdStr.empty())
-                    SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
-                else if (sseConn && !sseConn->isClosed())
-                    sseConn->send(data);
-                fullReply->append(token);
-            },
-            // onDone：入库 + 关闭 SSE
-            [sseConn, connId, strategyPtr, agentPtr, fullReply,
-             capturedConvId, capturedUserId, capturedUserIdStr]() {
-                if (capturedUserId > 0 && capturedConvId > 0 && !fullReply->empty())
-                {
-                    dao::MessageDao::insert(capturedConvId, "assistant", *fullReply);
-                    dao::ConversationDao::touch(capturedConvId);
+        std::thread([agentPtr, strategyPtr, messages,
+                     sseConn, fullReply, capturedConvId, capturedUserId,
+                     capturedUserIdStr, connId]() {
+            agentPtr->chat(
+                strategyPtr.get(),
+                messages,
+                [sseConn, fullReply, capturedUserIdStr, connId](const std::string& token) {
+                    std::string data = R"({"token":")" + escapeJson(token) + R"("})";
+                    if (!capturedUserIdStr.empty())
+                        SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
+                    else if (sseConn && !sseConn->isClosed())
+                        sseConn->send(data);
+                    fullReply->append(token);
+                },
+                // onDone：入库 + 关闭 SSE
+                [sseConn, connId, strategyPtr, agentPtr, fullReply,
+                 capturedConvId, capturedUserId, capturedUserIdStr]() {
+                    if (capturedUserId > 0 && capturedConvId > 0 && !fullReply->empty())
+                    {
+                        dao::MessageDao::insert(capturedConvId, "assistant", *fullReply);
+                        dao::ConversationDao::touch(capturedConvId);
+                    }
+                    if (!capturedUserIdStr.empty())
+                        SseManager::instance().publishToUser(capturedUserIdStr, "[DONE]", connId);
+                    else if (sseConn) sseConn->sendDone();
+                    SseManager::instance().removeConnection(connId);
+                },
+                // onError
+                [sseConn, connId, strategyPtr, agentPtr, capturedUserIdStr](const std::string& error) {
+                    std::string data = R"({"error":")" + escapeJson(error) + R"("})";
+                    if (!capturedUserIdStr.empty())
+                        SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
+                    else if (sseConn && !sseConn->isClosed())
+                        sseConn->send(data, "error");
+                    SseManager::instance().removeConnection(connId);
+                },
+                // onToolCall：工具调用事件推送给前端
+                [sseConn, capturedUserIdStr, connId](const std::string& toolName, const std::string& result) {
+                    std::string payload =
+                        R"({"tool":")" + toolName + R"(","result":")" +
+                        escapeJson(result) + R"("})";
+                    if (!capturedUserIdStr.empty())
+                        SseManager::instance().publishToUser(capturedUserIdStr, payload, connId);
+                    else if (sseConn && !sseConn->isClosed())
+                        sseConn->send(payload, "tool");
                 }
-                if (!capturedUserIdStr.empty())
-                    SseManager::instance().publishToUser(capturedUserIdStr, "[DONE]", connId);
-                else if (sseConn) sseConn->sendDone();
-                SseManager::instance().removeConnection(connId);
-            },
-            // onError
-            [sseConn, connId, strategyPtr, agentPtr, capturedUserIdStr](const std::string& error) {
-                std::string data = R"({"error":")" + escapeJson(error) + R"("})";
-                if (!capturedUserIdStr.empty())
-                    SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
-                else if (sseConn && !sseConn->isClosed())
-                    sseConn->send(data, "error");
-                SseManager::instance().removeConnection(connId);
-            },
-            // onToolCall：工具调用事件推送给前端
-            [sseConn, capturedUserIdStr, connId](const std::string& toolName, const std::string& result) {
-                std::string payload =
-                    R"({"tool":")" + toolName + R"(","result":")" +
-                    escapeJson(result) + R"("})";
-                if (!capturedUserIdStr.empty())
-                    SseManager::instance().publishToUser(capturedUserIdStr, payload, connId);
-                else if (sseConn && !sseConn->isClosed())
-                    sseConn->send(payload, "tool");
-            }
-        );
+            );
+        }).detach();
 
         resp->setStatusCode(HttpResponse::k200Ok);
         resp->markAsSseUpgraded();
@@ -372,6 +376,20 @@ private:
             else result += json[pos];
             ++pos;
         }
+        return result;
+    }
+
+    static std::string extractNumber(const std::string& json, const std::string& field)
+    {
+        std::string key = "\"" + field + "\"";
+        auto pos = json.find(key);
+        if (pos == std::string::npos) return "";
+        pos += key.size();
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == ':')) ++pos;
+        if (pos >= json.size() || !std::isdigit((unsigned char)json[pos])) return "";
+        std::string result;
+        while (pos < json.size() && std::isdigit((unsigned char)json[pos]))
+            result += json[pos++];
         return result;
     }
 
