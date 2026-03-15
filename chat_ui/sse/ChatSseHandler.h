@@ -121,10 +121,14 @@ public:
 
             if (conversationId > 0)
             {
-                for (auto& m : messages)
+                // 只插入本次新增的最后一条 user 消息，不重复插入历史
+                for (auto it = messages.rbegin(); it != messages.rend(); ++it)
                 {
-                    if (m.role == "user")
-                        dao::MessageDao::insert(conversationId, "user", m.content);
+                    if (it->role == "user")
+                    {
+                        dao::MessageDao::insert(conversationId, "user", it->content);
+                        break;
+                    }
                 }
             }
         }
@@ -141,7 +145,8 @@ public:
 
         conn->send(buildSseHandshake());
 
-        std::string connId = SseManager::instance().addConnection(conn);
+        std::string userIdStr = userId > 0 ? std::to_string(userId) : "";
+        std::string connId = SseManager::instance().addConnection(conn, userIdStr);
         auto sseConn = SseManager::instance().getConnection(connId);
         if (!sseConn) return;
 
@@ -220,6 +225,7 @@ public:
         auto fullReply      = std::make_shared<std::string>();
         auto capturedConvId = conversationId;
         auto capturedUserId = userId;
+        auto capturedUserIdStr = userIdStr;
 
         // strategy / agent 用 shared_ptr 持有，在 lambda 里安全捕获
         auto strategyPtr = std::shared_ptr<ai::AIStrategy>(std::move(strategy));
@@ -228,42 +234,46 @@ public:
         agentPtr->chat(
             strategyPtr.get(),
             messages,
-            // onToken：流式 token 推送给前端
-            [sseConn, fullReply](const std::string& token) {
-                if (sseConn && !sseConn->isClosed())
-                {
-                    sseConn->send(R"({"token":")" + escapeJson(token) + R"("})");
-                }
+            // onToken：通过 publishToUser 推送（分布式模式走 Redis，单机直接写连接）
+            [sseConn, fullReply, capturedUserIdStr, connId](const std::string& token) {
+                std::string data = R"({"token":")" + escapeJson(token) + R"("})";
+                if (!capturedUserIdStr.empty())
+                    SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
+                else if (sseConn && !sseConn->isClosed())
+                    sseConn->send(data);
                 fullReply->append(token);
             },
             // onDone：入库 + 关闭 SSE
             [sseConn, connId, strategyPtr, agentPtr, fullReply,
-             capturedConvId, capturedUserId]() {
+             capturedConvId, capturedUserId, capturedUserIdStr]() {
                 if (capturedUserId > 0 && capturedConvId > 0 && !fullReply->empty())
                 {
                     dao::MessageDao::insert(capturedConvId, "assistant", *fullReply);
                     dao::ConversationDao::touch(capturedConvId);
                 }
-                if (sseConn) sseConn->sendDone();
+                if (!capturedUserIdStr.empty())
+                    SseManager::instance().publishToUser(capturedUserIdStr, "[DONE]", connId);
+                else if (sseConn) sseConn->sendDone();
                 SseManager::instance().removeConnection(connId);
             },
             // onError
-            [sseConn, connId, strategyPtr, agentPtr](const std::string& error) {
-                if (sseConn && !sseConn->isClosed())
-                    sseConn->send(
-                        R"({"error":")" + escapeJson(error) + R"("})", "error");
+            [sseConn, connId, strategyPtr, agentPtr, capturedUserIdStr](const std::string& error) {
+                std::string data = R"({"error":")" + escapeJson(error) + R"("})";
+                if (!capturedUserIdStr.empty())
+                    SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
+                else if (sseConn && !sseConn->isClosed())
+                    sseConn->send(data, "error");
                 SseManager::instance().removeConnection(connId);
             },
-            // onToolCall：工具调用事件推送给前端（前端可展示"正在查询天气..."）
-            [sseConn](const std::string& toolName, const std::string& result) {
-                if (sseConn && !sseConn->isClosed())
-                {
-                    // event: tool 是独立的 SSE 事件类型，前端按需处理
-                    std::string payload =
-                        R"({"tool":")" + toolName + R"(","result":")" +
-                        escapeJson(result) + R"("})";
+            // onToolCall：工具调用事件推送给前端
+            [sseConn, capturedUserIdStr, connId](const std::string& toolName, const std::string& result) {
+                std::string payload =
+                    R"({"tool":")" + toolName + R"(","result":")" +
+                    escapeJson(result) + R"("})";
+                if (!capturedUserIdStr.empty())
+                    SseManager::instance().publishToUser(capturedUserIdStr, payload, connId);
+                else if (sseConn && !sseConn->isClosed())
                     sseConn->send(payload, "tool");
-                }
             }
         );
 

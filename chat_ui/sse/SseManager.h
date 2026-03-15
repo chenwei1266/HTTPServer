@@ -10,19 +10,13 @@
 #include <muduo/net/TcpConnection.h>
 #include <muduo/base/Logging.h>
 
+#include "RedisPubSub.h"
+
 namespace http
 {
 namespace sse
 {
 
-/**
- * SseConnection: 管理单个 SSE 连接
- * 
- * SSE 协议格式：
- *   data: <message>\n\n          // 普通数据帧
- *   data: [DONE]\n\n             // 结束帧（类 OpenAI 风格）
- *   event: <eventType>\ndata: <message>\n\n  // 带事件类型
- */
 class SseConnection
 {
 public:
@@ -31,10 +25,10 @@ public:
         , closed_(false)
     {}
 
-    // 发送 SSE 数据帧
+    // 发送 SSE 数据帧（线程安全：通过 runInLoop 投递到 I/O 线程）
     void send(const std::string& data, const std::string& event = "")
     {
-        if (closed_ || !conn_->connected()) 
+        if (closed_ || !conn_->connected())
         {
             closed_ = true;
             return;
@@ -42,19 +36,23 @@ public:
 
         std::string frame;
         if (!event.empty())
-        {
             frame += "event: " + event + "\n";
-        }
         frame += "data: " + data + "\n\n";
 
-        conn_->send(frame);
+        auto conn = conn_;
+        conn_->getLoop()->runInLoop([conn, frame = std::move(frame)]() {
+            if (conn->connected()) conn->send(frame);
+        });
     }
 
     // 发送结束帧
     void sendDone()
     {
-        send("[DONE]");
-        // 短暂延迟后关闭，确保数据发送完毕
+        if (closed_ || !conn_->connected()) { closed_ = true; return; }
+        auto conn = conn_;
+        conn_->getLoop()->runInLoop([conn]() {
+            if (conn->connected()) conn->send("data: [DONE]\n\n");
+        });
         closed_ = true;
     }
 
@@ -62,7 +60,10 @@ public:
     void sendHeartbeat()
     {
         if (closed_ || !conn_->connected()) return;
-        conn_->send(": heartbeat\n\n");
+        auto conn = conn_;
+        conn_->getLoop()->runInLoop([conn]() {
+            if (conn->connected()) conn->send(": heartbeat\n\n");
+        });
     }
 
     bool isClosed() const { return closed_ || !conn_->connected(); }
@@ -85,7 +86,7 @@ private:
 
 
 /**
- * SseManager: 管理所有 SSE 连接
+ * SseManager: 管理所有 SSE 连接，支持单机和分布式（Redis Pub/Sub）两种模式
  */
 class SseManager
 {
@@ -99,18 +100,35 @@ public:
         return mgr;
     }
 
-    // 注册一个新的 SSE 连接，返回连接 ID
-    ConnectionId addConnection(const muduo::net::TcpConnectionPtr& conn)
+    // 多实例部署时调用，启用 Redis Pub/Sub 跨实例转发
+    void initRedis(const std::string& redisUri)
+    {
+        pubsub_ = std::make_unique<RedisPubSub>(redisUri);
+    }
+
+    // 注册新 SSE 连接；userId 非空时订阅对应 Redis channel
+    ConnectionId addConnection(const muduo::net::TcpConnectionPtr& conn,
+                               const std::string& userId = "")
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto sseConn = std::make_shared<SseConnection>(conn);
         std::string id = conn->name();
         connections_[id] = sseConn;
+
+        if (!userId.empty() && pubsub_)
+        {
+            std::string channel = "sse:user:" + userId;
+            userChannels_[id] = channel;
+            auto weakConn = std::weak_ptr<SseConnection>(sseConn);
+            pubsub_->subscribe(channel, [weakConn](const std::string&, const std::string& msg) {
+                if (auto c = weakConn.lock()) c->send(msg);
+            });
+        }
+
         LOG_INFO << "SSE connection added: " << id;
         return id;
     }
 
-    // 获取连接
     SseConnectionPtr getConnection(const ConnectionId& id)
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -119,15 +137,35 @@ public:
         return nullptr;
     }
 
-    // 移除连接
     void removeConnection(const ConnectionId& id)
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        auto it = userChannels_.find(id);
+        if (it != userChannels_.end())
+        {
+            if (pubsub_) pubsub_->unsubscribe(it->second);
+            userChannels_.erase(it);
+        }
         connections_.erase(id);
         LOG_INFO << "SSE connection removed: " << id;
     }
 
-    // 清理已关闭的连接
+    // 分布式模式：发布到 Redis channel（所有实例上该用户的连接都会收到）
+    // 单机模式：直接写本地连接
+    void publishToUser(const std::string& userId, const std::string& data,
+                       const std::string& connId = "")
+    {
+        if (pubsub_)
+        {
+            pubsub_->publish("sse:user:" + userId, data);
+        }
+        else if (!connId.empty())
+        {
+            auto conn = getConnection(connId);
+            if (conn) conn->send(data);
+        }
+    }
+
     void cleanup()
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -140,7 +178,7 @@ public:
         }
     }
 
-    size_t size() const 
+    size_t size() const
     {
         std::lock_guard<std::mutex> lock(mutex_);
         return connections_.size();
@@ -148,8 +186,10 @@ public:
 
 private:
     SseManager() = default;
-    mutable std::mutex                          mutex_;
-    std::map<ConnectionId, SseConnectionPtr>   connections_;
+    mutable std::mutex                        mutex_;
+    std::map<ConnectionId, SseConnectionPtr>  connections_;
+    std::map<ConnectionId, std::string>       userChannels_; // connId → Redis channel
+    std::unique_ptr<RedisPubSub>              pubsub_;
 };
 
 

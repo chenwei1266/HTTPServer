@@ -23,6 +23,7 @@
 #include "utils/MysqlUtil.h"
 
 #include "sse/ChatSseHandler.h"
+#include "sse/SseManager.h"
 #include "auth/AuthHandler.h"
 #include "auth/AuthMiddleware.h"
 #include "api/ConversationHandler.h"
@@ -36,17 +37,22 @@
 // ─── MCP 内置工具 ─────────────────────────────────────────────
 #include "mcp/BuiltinTools.h"
 
-// ─── HTML 页面 ───────────────────────────────────────────────
+// ─── 静态资源 ────────────────────────────────────────────────
 static std::string g_htmlPage;
 
-static bool loadHtml(const std::string& path)
+static std::string loadFile(const std::string& path)
 {
     std::ifstream ifs(path);
-    if (!ifs.is_open()) return false;
+    if (!ifs.is_open()) return "";
     std::ostringstream oss;
     oss << ifs.rdbuf();
-    g_htmlPage = oss.str();
-    return true;
+    return oss.str();
+}
+
+static bool loadHtml(const std::string& base)
+{
+    g_htmlPage = loadFile(base + "chat_ui.html");
+    return !g_htmlPage.empty();
 }
 
 static std::string getEnv(const char* name, const std::string& defaultVal = "")
@@ -61,8 +67,8 @@ int main(int argc, char* argv[])
     int port = 8080;
     if (argc > 1) port = std::atoi(argv[1]);
 
-    // ─── 加载 HTML ───────────────────────────────────────
-    if (!loadHtml("./chat_ui.html") && !loadHtml("../chat_ui/chat_ui.html"))
+    // ─── 加载静态资源 ────────────────────────────────────
+    if (!loadHtml("./") && !loadHtml("../chat_ui/"))
     {
         g_htmlPage = R"(<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Chat</title>
@@ -149,6 +155,10 @@ justify-content:center;height:100vh;font-family:sans-serif;}</style>
         std::move(sessionStorage));
     http::session::SessionManager* sm = sessionManager.get();
     server.setSessionManager(std::move(sessionManager));
+
+    // ─── 分布式 SSE：启用 Redis Pub/Sub 跨实例转发 ──────
+    // 单机部署时注释掉此行即可退回本地模式
+    http::sse::SseManager::instance().initRedis(redisUri);
 
     // ─── 路由注册 ────────────────────────────────────────
 

@@ -1267,7 +1267,7 @@ async function doLogout() {
   currentUser = null;
   messages = [];
   chatSessions = [];
-  currentSession = 0;
+  currentSessionId = 0;
   document.getElementById('appPage').classList.remove('page-fade-in');
   showAuthPage();
   // Reset form
@@ -1283,12 +1283,12 @@ async function doLogout() {
 // ============================================================
 const API_URL = '/api/chat/stream';
 
-let messages      = [];
-let isStreaming   = false;
-let currentReader = null;
-let currentModel  = 'claude-sonnet-4-5-20250929';
-let chatSessions  = [];
-let currentSession = 0;
+let messages           = [];
+let isStreaming        = false;
+let currentReader      = null;
+let currentModel       = 'claude-sonnet-4-5-20250929';
+let chatSessions       = [];   // [{ id, title }]
+let currentSessionId   = 0;   // 当前会话的服务端 id（0 = 未创建）
 
 // ============================================================
 //  Health Check
@@ -1310,47 +1310,48 @@ async function checkHealth() {
 }
 
 // ============================================================
-//  Session management
+//  Session management  —  server-backed
 // ============================================================
-function loadSessions() {
+async function loadSessions() {
   try {
-    const key = `chatSessions_${currentUser?.username || 'guest'}`;
-    chatSessions = JSON.parse(localStorage.getItem(key) || '[]');
+    const r = await fetch('/api/conversations', { credentials: 'same-origin' });
+    if (!r.ok) { chatSessions = []; renderSessionList(); return; }
+    chatSessions = await r.json();
   } catch { chatSessions = []; }
   renderSessionList();
-}
-
-function saveSessions() {
-  const key = `chatSessions_${currentUser?.username || 'guest'}`;
-  localStorage.setItem(key, JSON.stringify(chatSessions));
 }
 
 function renderSessionList() {
   const list = document.getElementById('chatList');
   list.innerHTML = '';
-  chatSessions.slice().reverse().forEach((s, idx) => {
-    const realIdx = chatSessions.length - 1 - idx;
+  chatSessions.forEach(s => {
     const el = document.createElement('div');
-    el.className = 'chat-item' + (realIdx === currentSession ? ' active' : '');
+    el.className = 'chat-item' + (s.id === currentSessionId ? ' active' : '');
     el.textContent = s.title || '新对话';
-    el.onclick = () => switchSession(realIdx);
+    el.onclick = () => switchSession(s.id);
     list.appendChild(el);
   });
 }
 
-function switchSession(idx) {
-  currentSession = idx;
-  messages = chatSessions[idx]?.messages || [];
-  renderMessages();
+async function switchSession(id) {
+  currentSessionId = id;
+  messages = [];
   renderSessionList();
-  document.getElementById('chatTitle').textContent = chatSessions[idx]?.title || '新对话';
+  const s = chatSessions.find(x => x.id === id);
+  document.getElementById('chatTitle').textContent = s?.title || '新对话';
+  try {
+    const r = await fetch(`/api/conversations/${id}/messages`, { credentials: 'same-origin' });
+    if (r.ok) {
+      const msgs = await r.json();
+      messages = msgs.map(m => ({ role: m.role, content: m.content }));
+    }
+  } catch {}
+  renderMessages();
 }
 
 function newChat() {
-  chatSessions.push({ title: '新对话', messages: [] });
-  currentSession = chatSessions.length - 1;
+  currentSessionId = 0;
   messages = [];
-  saveSessions();
   renderSessionList();
   renderMessages();
   document.getElementById('chatTitle').textContent = '新对话';
@@ -1434,22 +1435,7 @@ async function sendMessage() {
   textarea.value = '';
   autoResize(textarea);
 
-  if (chatSessions.length === 0) {
-    chatSessions.push({ title: text.slice(0, 24), messages: [] });
-    currentSession = 0;
-  }
-
   messages.push({ role: 'user', content: text });
-  if (currentSession < chatSessions.length) {
-    chatSessions[currentSession].messages = messages.slice();
-    if (chatSessions[currentSession].title === '新对话') {
-      chatSessions[currentSession].title = text.slice(0, 24) + (text.length > 24 ? '…' : '');
-      document.getElementById('chatTitle').textContent = chatSessions[currentSession].title;
-    }
-    saveSessions();
-    renderSessionList();
-  }
-
   appendMessageEl('user', text);
   setStreaming(true);
 
@@ -1479,11 +1465,14 @@ async function sendMessage() {
   let aiText = '';
 
   try {
+    const body = { model: currentModel, messages };
+    if (currentSessionId) body.conversation_id = currentSessionId;
+
     const resp = await fetch(API_URL, {
       credentials: 'same-origin',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: currentModel, messages })
+      body: JSON.stringify(body)
     });
 
     if (resp.status === 401) {
@@ -1501,6 +1490,7 @@ async function sendMessage() {
     aiBubble.innerHTML = '<span class="cursor"></span>';
 
     let buffer = '';
+    let eventType = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1511,33 +1501,34 @@ async function sendMessage() {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        if (!trimmed) { eventType = ''; continue; }
+        if (trimmed.startsWith('event: ')) { eventType = trimmed.slice(7); continue; }
+        if (!trimmed.startsWith('data: ')) continue;
         const data = trimmed.slice(6);
         if (data === '[DONE]') break;
         try {
           const parsed = JSON.parse(data);
-          if (parsed.error)       aiText += `\n[错误: ${parsed.error}]`;
-          else if (parsed.token)  aiText += parsed.token;
-          aiBubble.innerHTML = renderContent(aiText) + '<span class="cursor"></span>';
-          scrollToBottom(false);
+          if (eventType === 'meta') {
+            if (parsed.conversation_id && !currentSessionId) {
+              currentSessionId = parsed.conversation_id;
+              await loadSessions();
+            }
+          } else {
+            if (parsed.error)      aiText += `\n[错误: ${parsed.error}]`;
+            else if (parsed.token) aiText += parsed.token;
+            aiBubble.innerHTML = renderContent(aiText) + '<span class="cursor"></span>';
+            scrollToBottom(false);
+          }
         } catch {}
       }
     }
 
     aiBubble.innerHTML = renderContent(aiText || '（无响应）');
     messages.push({ role: 'assistant', content: aiText });
-    if (currentSession < chatSessions.length) {
-      chatSessions[currentSession].messages = messages.slice();
-      saveSessions();
-    }
   } catch (err) {
     if (err.name === 'AbortError') {
       aiBubble.innerHTML = renderContent(aiText) + '<span style="color:var(--muted);font-size:12px"> [已停止]</span>';
       messages.push({ role: 'assistant', content: aiText });
-      if (currentSession < chatSessions.length) {
-        chatSessions[currentSession].messages = messages.slice();
-        saveSessions();
-      }
     } else {
       aiBubble.innerHTML = `<span style="color:var(--danger)">连接失败: ${err.message}</span>`;
       showToast('连接失败，请检查服务器状态');
@@ -1590,10 +1581,6 @@ function useSuggestion(text) {
 function clearChat() {
   if (messages.length === 0) return;
   messages = [];
-  if (currentSession < chatSessions.length) {
-    chatSessions[currentSession].messages = [];
-    saveSessions();
-  }
   renderMessages();
   showToast('对话已清空');
 }
