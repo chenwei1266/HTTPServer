@@ -1,3 +1,0 @@
-/home/user/cw/httpserver/HTTPServer/chat_ui/build/CMakeFiles/chat_server.dir
-/home/user/cw/httpserver/HTTPServer/chat_ui/build/CMakeFiles/edit_cache.dir
-/home/user/cw/httpserver/HTTPServer/chat_ui/build/CMakeFiles/rebuild_cache.dir

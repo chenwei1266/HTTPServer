@@ -1,4 +1,0 @@
-concurrency,qps,p99_latency_us,error_rate_percent
-10,0,0,100
-50,0,0,100
-100,0,0,100

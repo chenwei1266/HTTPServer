@@ -41,6 +41,8 @@ target_link_libraries(todo_server
     ssl
     crypto
     mysqlcppconn      # MySQL Connector/C++（DbConnection.cpp 需要）
+    redis++           # redis-plus-plus（RateLimitMiddleware 需要）
+    hiredis
 )
 
 # 构建后自动把 todo.html 复制到可执行文件旁边
