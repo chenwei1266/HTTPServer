@@ -1,0 +1,16 @@
+=== DB Connection Pool Benchmark ===
+Target: 127.0.0.1:8080
+Logged in as: user1
+Running gradual load test with stages: 10,50,100,200
+Each stage runs for 20 seconds
+
+Running stage: 10 concurrent connections...
+  qps=1033.33, p99_us=23968, error_rate=0%
+Running stage: 50 concurrent connections...
+  qps=1031.07, p99_us=99336, error_rate=0%
+Running stage: 100 concurrent connections...
+  qps=1004.47, p99_us=206566, error_rate=0%
+Running stage: 200 concurrent connections...
+  qps=1043.42, p99_us=274713, error_rate=0%
+
+Benchmark complete. Results saved in CSV format.

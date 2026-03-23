@@ -1,0 +1,4 @@
+stage_connections,attempted,created,success,disconnected,conn_success_rate,ttft_p50_ms,ttft_p95_ms,ttft_p99_ms,ttft_max_ms,token_events_total,token_events_per_sec,elapsed_sec
+100,100,100,62,0,62,51,84,85,85,62,1.95825,31.661
+300,300,300,0,0,0,0,0,0,0,0,0,31.484
+500,500,500,63,0,12.6,63,504,1117,1117,63,2.0284,31.059

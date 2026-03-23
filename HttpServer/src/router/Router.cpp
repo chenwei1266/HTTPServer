@@ -28,9 +28,7 @@ bool Router::route(const muduo::net::TcpConnectionPtr &conn,
     auto handlerIt = handlers_.find(key);
     if (handlerIt != handlers_.end())
     {
-        // ★ 注入连接，SSE handler 在 handle() 内可直接使用 conn_
-        handlerIt->second->conn_ = conn;
-        handlerIt->second->handle(req, resp);
+        handlerIt->second->handle(conn, req, resp);
         return true;
     }
 
@@ -51,9 +49,7 @@ bool Router::route(const muduo::net::TcpConnectionPtr &conn,
             std::regex_match(path, match, routeObj.pathRegex_))
         {
             extractPathParameters(match, const_cast<HttpRequest &>(req));
-            // ★ 注入连接
-            routeObj.handler_->conn_ = conn;
-            routeObj.handler_->handle(req, resp);
+            routeObj.handler_->handle(conn, req, resp);
             return true;
         }
     }

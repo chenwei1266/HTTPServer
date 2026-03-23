@@ -163,7 +163,10 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
 
     muduo::net::Buffer buf;
     response.appendToBuffer(&buf);
-    LOG_INFO << "Sending response:\n" << buf.toStringPiece().as_string();
+    LOG_DEBUG << "Sending response: status="
+              << response.getStatusCode()
+              << ", bytes=" << buf.readableBytes()
+              << ", close=" << (response.closeConnection() ? "true" : "false");
 
     conn->send(&buf);
     if (response.closeConnection())
@@ -184,7 +187,7 @@ void HttpServer::handleRequest(const muduo::net::TcpConnectionPtr &conn,
         HttpRequest mutableReq = req;
         middlewareChain_.processBefore(mutableReq);
 
-        // ★ 路由时传入 conn，Router 负责在分发给 RouterHandler 前注入 conn_
+        // 路由时直接把 conn 作为参数传给 Handler，避免共享状态竞态
         if (!router_.route(conn, mutableReq, resp))
         {
             LOG_INFO << "请求的啥，url：" << req.method() << " " << req.path();

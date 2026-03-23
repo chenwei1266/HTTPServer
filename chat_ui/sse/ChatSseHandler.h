@@ -42,7 +42,9 @@ public:
         sessionManager_ = sm;
     }
 
-    void handle(const HttpRequest& req, HttpResponse* resp) override
+    void handle(const muduo::net::TcpConnectionPtr& conn,
+                const HttpRequest& req,
+                HttpResponse* resp) override
     {
         // ─── OPTIONS 预检 ────────────────────────────────
         if (req.method() == HttpRequest::kOptions)
@@ -135,7 +137,6 @@ public:
         }
 
         // ─── SSE 握手 ────────────────────────────────────
-        auto conn = conn_;
         if (!conn || !conn->connected())
         {
             resp->setStatusCode(HttpResponse::k500InternalServerError);

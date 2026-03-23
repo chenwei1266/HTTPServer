@@ -1,0 +1,18 @@
+=== SSE Benchmark ===
+Target: 127.0.0.1:8080
+Model: claude-sonnet-4-6, enable_tools=false
+Stages: 100,300,500
+Stage timeout: 30 sec
+
+[Stage] connections=100 ...
+  success=62, disconnected=0, conn_success=62%, ttft_p95=84ms, token_events/s=1.95825
+[Stage] connections=300 ...
+  success=0, disconnected=0, conn_success=0%, ttft_p95=0ms, token_events/s=0
+[Stage] connections=500 ...
+  success=63, disconnected=0, conn_success=12.6%, ttft_p95=504ms, token_events/s=2.0284
+
+=== Summary (CSV) ===
+stage_connections,attempted,created,success,disconnected,conn_success_rate,ttft_p50_ms,ttft_p95_ms,ttft_p99_ms,ttft_max_ms,token_events_total,token_events_per_sec,elapsed_sec
+100,100,100,62,0,62,51,84,85,85,62,1.95825,31.661
+300,300,300,0,0,0,0,0,0,0,0,0,31.484
+500,500,500,63,0,12.6,63,504,1117,1117,63,2.0284,31.059

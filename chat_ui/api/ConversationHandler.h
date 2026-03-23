@@ -22,7 +22,9 @@ public:
         : sessionManager_(sm)
     {}
 
-    void handle(const http::HttpRequest& req, http::HttpResponse* resp) override
+    void handle(const muduo::net::TcpConnectionPtr&,
+                const http::HttpRequest& req,
+                http::HttpResponse* resp) override
     {
         resp->setContentType("application/json");
 
@@ -110,7 +112,9 @@ public:
         : sessionManager_(sm)
     {}
 
-    void handle(const http::HttpRequest& req, http::HttpResponse* resp) override
+    void handle(const muduo::net::TcpConnectionPtr&,
+                const http::HttpRequest& req,
+                http::HttpResponse* resp) override
     {
         resp->setContentType("application/json");
 
