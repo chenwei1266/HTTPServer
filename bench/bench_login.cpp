@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <algorithm>
+#include <fstream>
 #include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -18,6 +19,8 @@ using namespace chrono;
 struct Stats {
     atomic<uint64_t> success{0};
     atomic<uint64_t> failed{0};
+    atomic<uint64_t> network_failed{0};
+    atomic<uint64_t> http_non_200{0};
     vector<uint64_t> latencies;
 };
 
@@ -35,6 +38,10 @@ public:
     }
 
     bool connect() {
+        if (sock >= 0) {
+            close(sock);
+            sock = -1;
+        }
         sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock < 0) return false;
 
@@ -50,7 +57,12 @@ public:
         return ::connect(sock, (sockaddr*)&addr, sizeof(addr)) == 0;
     }
 
-    bool post_login(const string& username, const string& password, uint64_t& latency_us) {
+    bool reconnect() {
+        return connect();
+    }
+
+    bool post_login(const string& username, const string& password, uint64_t& latency_us,
+                    bool& network_error, int& http_status) {
         string body = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
         string req = "POST /api/auth/login HTTP/1.1\r\n"
                      "Host: " + host + "\r\n"
@@ -62,6 +74,8 @@ public:
         auto start = steady_clock::now();
 
         if (send(sock, req.c_str(), req.size(), 0) < 0) {
+            network_error = true;
+            http_status = 0;
             return false;
         }
 
@@ -71,10 +85,22 @@ public:
         auto end = steady_clock::now();
         latency_us = duration_cast<microseconds>(end - start).count();
 
-        if (n <= 0) return false;
+        if (n <= 0) {
+            network_error = true;
+            http_status = 0;
+            return false;
+        }
 
-        // Check for HTTP 200
-        return strstr(buf, "HTTP/1.1 200") != nullptr;
+        network_error = false;
+        http_status = 0;
+
+        // Parse HTTP status
+        string resp(buf, n);
+        auto p = resp.find("HTTP/1.1 ");
+        if (p != string::npos && p + 12 <= resp.size()) {
+            http_status = atoi(resp.substr(p + 9, 3).c_str());
+        }
+        return http_status == 200;
     }
 };
 
@@ -84,26 +110,30 @@ void worker_thread(const string& host, int port, int requests_per_thread,
 
     if (!client.connect()) {
         stats.failed += requests_per_thread;
+        stats.network_failed += requests_per_thread;
         return;
     }
 
     for (int i = 0; i < requests_per_thread; i++) {
         uint64_t latency;
-        if (client.post_login(username, password, latency)) {
+        bool network_error = false;
+        int http_status = 0;
+        if (client.post_login(username, password, latency, network_error, http_status)) {
             stats.success++;
             stats.latencies.push_back(latency);
         } else {
             stats.failed++;
+            if (network_error) stats.network_failed++;
+            else stats.http_non_200++;
             // Reconnect on failure
-            client = HttpClient(host, port);
-            if (!client.connect()) break;
+            if (!client.reconnect()) break;
         }
     }
 }
 
 int main(int argc, char** argv) {
-    if (argc < 6) {
-        cerr << "Usage: " << argv[0] << " <host> <port> <threads> <requests_per_thread> <username> <password>\n";
+    if (argc < 7) {
+        cerr << "Usage: " << argv[0] << " <host> <port> <threads> <requests_per_thread> <username> <password> [--csv-out <path>]\n";
         cerr << "Example: " << argv[0] << " 127.0.0.1 8080 10 1000 testuser testpass\n";
         return 1;
     }
@@ -114,6 +144,14 @@ int main(int argc, char** argv) {
     int requests_per_thread = atoi(argv[4]);
     string username = argv[5];
     string password = argv[6];
+    string csv_out;
+
+    for (int i = 7; i + 1 < argc; i++) {
+        if (string(argv[i]) == "--csv-out") {
+            csv_out = argv[i + 1];
+            i++;
+        }
+    }
 
     cout << "=== Login Benchmark ===\n";
     cout << "Target: " << host << ":" << port << "\n";
@@ -149,10 +187,14 @@ int main(int argc, char** argv) {
         return stats.latencies[idx];
     };
 
+    if (elapsed <= 0.0) elapsed = 0.001;
+
     cout << "=== Results ===\n";
     cout << "Elapsed: " << elapsed << " seconds\n";
     cout << "Success: " << stats.success << "\n";
     cout << "Failed: " << stats.failed << "\n";
+    cout << "  - Network failed: " << stats.network_failed << "\n";
+    cout << "  - HTTP non-200: " << stats.http_non_200 << "\n";
     cout << "QPS: " << (stats.success / elapsed) << "\n\n";
 
     cout << "=== Latency (microseconds) ===\n";
@@ -160,6 +202,25 @@ int main(int argc, char** argv) {
     cout << "P95: " << percentile(0.95) << " us\n";
     cout << "P99: " << percentile(0.99) << " us\n";
     cout << "Max: " << (stats.latencies.empty() ? 0 : stats.latencies.back()) << " us\n";
+
+    if (!csv_out.empty()) {
+        ofstream ofs(csv_out);
+        if (!ofs.is_open()) {
+            cerr << "Failed to write csv: " << csv_out << "\n";
+            return 1;
+        }
+        ofs << "metric,value\n";
+        ofs << "elapsed_sec," << elapsed << "\n";
+        ofs << "success," << stats.success << "\n";
+        ofs << "failed," << stats.failed << "\n";
+        ofs << "network_failed," << stats.network_failed << "\n";
+        ofs << "http_non_200," << stats.http_non_200 << "\n";
+        ofs << "qps," << (stats.success / elapsed) << "\n";
+        ofs << "p50_us," << percentile(0.50) << "\n";
+        ofs << "p95_us," << percentile(0.95) << "\n";
+        ofs << "p99_us," << percentile(0.99) << "\n";
+        ofs << "max_us," << (stats.latencies.empty() ? 0 : stats.latencies.back()) << "\n";
+    }
 
     return 0;
 }

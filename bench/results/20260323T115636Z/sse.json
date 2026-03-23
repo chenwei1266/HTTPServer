@@ -1,0 +1,52 @@
+{
+  "target": "127.0.0.1:8080",
+  "model": "claude-sonnet-4-6",
+  "enable_tools": false,
+  "results": [
+    {
+      "stage_connections": 100,
+      "attempted": 100,
+      "created": 100,
+      "success": 0,
+      "disconnected": 100,
+      "conn_success_rate": 0,
+      "ttft_p50_ms": 0,
+      "ttft_p95_ms": 0,
+      "ttft_p99_ms": 0,
+      "ttft_max_ms": 0,
+      "token_events_total": 0,
+      "token_events_per_sec": 0,
+      "elapsed_sec": 0
+    },
+    {
+      "stage_connections": 300,
+      "attempted": 300,
+      "created": 300,
+      "success": 0,
+      "disconnected": 300,
+      "conn_success_rate": 0,
+      "ttft_p50_ms": 0,
+      "ttft_p95_ms": 0,
+      "ttft_p99_ms": 0,
+      "ttft_max_ms": 0,
+      "token_events_total": 0,
+      "token_events_per_sec": 0,
+      "elapsed_sec": 0
+    },
+    {
+      "stage_connections": 500,
+      "attempted": 500,
+      "created": 500,
+      "success": 0,
+      "disconnected": 500,
+      "conn_success_rate": 0,
+      "ttft_p50_ms": 0,
+      "ttft_p95_ms": 0,
+      "ttft_p99_ms": 0,
+      "ttft_max_ms": 0,
+      "token_events_total": 0,
+      "token_events_per_sec": 0,
+      "elapsed_sec": 0.002
+    }
+  ]
+}

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <algorithm>
+#include <fstream>
 #include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -37,6 +38,10 @@ public:
     }
 
     bool connect() {
+        if (sock >= 0) {
+            close(sock);
+            sock = -1;
+        }
         sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock < 0) return false;
 
@@ -49,6 +54,10 @@ public:
         inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
 
         return ::connect(sock, (sockaddr*)&addr, sizeof(addr)) == 0;
+    }
+
+    bool reconnect() {
+        return connect();
     }
 
     bool login(const string& username, const string& password) {
@@ -81,6 +90,14 @@ public:
         return !session_cookie.empty();
     }
 
+    void set_session_cookie(const string& cookie) {
+        session_cookie = cookie;
+    }
+
+    const string& get_session_cookie() const {
+        return session_cookie;
+    }
+
     bool get_conversations(uint64_t& latency_us) {
         string req = "GET /api/conversations HTTP/1.1\r\n"
                      "Host: " + host + "\r\n"
@@ -107,12 +124,13 @@ public:
 };
 
 void worker_thread(const string& host, int port, const string& session_cookie,
-                   int duration_sec, LoadStats& stats, atomic<bool>& stop_flag) {
+                   LoadStats& stats, atomic<bool>& stop_flag) {
     HttpClient client(host, port);
 
     if (!client.connect()) {
         return;
     }
+    client.set_session_cookie(session_cookie);
 
     while (!stop_flag) {
         uint64_t latency;
@@ -123,14 +141,22 @@ void worker_thread(const string& host, int port, const string& session_cookie,
         } else {
             stats.failed++;
             // Reconnect
-            client = HttpClient(host, port);
-            if (!client.connect()) break;
+            if (!client.reconnect()) break;
+            client.set_session_cookie(session_cookie);
         }
     }
 }
 
-void run_load_test(const string& host, int port, const string& session_cookie,
-                   int concurrency, int duration_sec) {
+struct StageResult {
+    int concurrency = 0;
+    double qps = 0.0;
+    uint64_t p95_us = 0;
+    uint64_t p99_us = 0;
+    double error_rate = 0.0;
+};
+
+StageResult run_load_test(const string& host, int port, const string& session_cookie,
+                          int concurrency, int duration_sec) {
     LoadStats stats;
     atomic<bool> stop_flag{false};
 
@@ -139,7 +165,7 @@ void run_load_test(const string& host, int port, const string& session_cookie,
     vector<thread> threads;
     for (int i = 0; i < concurrency; i++) {
         threads.emplace_back(worker_thread, host, port, session_cookie,
-                            duration_sec, ref(stats), ref(stop_flag));
+                            ref(stats), ref(stop_flag));
     }
 
     this_thread::sleep_for(seconds(duration_sec));
@@ -152,29 +178,35 @@ void run_load_test(const string& host, int port, const string& session_cookie,
     auto end = steady_clock::now();
     double elapsed = duration_cast<milliseconds>(end - start).count() / 1000.0;
 
-    // Calculate P99
+    // Calculate percentiles
     sort(stats.latencies.begin(), stats.latencies.end());
+    uint64_t p95 = 0;
     uint64_t p99 = 0;
     if (!stats.latencies.empty()) {
+        size_t idx95 = (size_t)(stats.latencies.size() * 0.95);
         size_t idx = (size_t)(stats.latencies.size() * 0.99);
+        if (idx95 >= stats.latencies.size()) idx95 = stats.latencies.size() - 1;
         if (idx >= stats.latencies.size()) idx = stats.latencies.size() - 1;
+        p95 = stats.latencies[idx95];
         p99 = stats.latencies[idx];
     }
 
     double qps = stats.success / elapsed;
     double error_rate = 100.0 * stats.failed / (stats.success + stats.failed + 0.001);
 
-    // Output CSV row
-    cout << concurrency << ","
-         << qps << ","
-         << p99 << ","
-         << error_rate << "\n";
+    StageResult r;
+    r.concurrency = concurrency;
+    r.qps = qps;
+    r.p95_us = p95;
+    r.p99_us = p99;
+    r.error_rate = error_rate;
+    return r;
 }
 
 int main(int argc, char** argv) {
     if (argc < 5) {
-        cerr << "Usage: " << argv[0] << " <host> <port> <username> <password>\n";
-        cerr << "Example: " << argv[0] << " 127.0.0.1 8080 testuser testpass\n";
+        cerr << "Usage: " << argv[0] << " <host> <port> <username> <password> [--duration <sec>] [--stages <a,b,c>] [--csv-out <path>]\n";
+        cerr << "Example: " << argv[0] << " 127.0.0.1 8080 testuser testpass --duration 30 --stages 10,50,100,200\n";
         return 1;
     }
 
@@ -182,6 +214,29 @@ int main(int argc, char** argv) {
     int port = atoi(argv[2]);
     string username = argv[3];
     string password = argv[4];
+    int duration_sec = 30;
+    vector<int> stages = {10, 50, 100, 200};
+    string csv_out;
+
+    for (int i = 5; i < argc; i++) {
+        string arg = argv[i];
+        if (arg == "--duration" && i + 1 < argc) {
+            duration_sec = atoi(argv[++i]);
+        } else if (arg == "--stages" && i + 1 < argc) {
+            stages.clear();
+            string s = argv[++i];
+            size_t start = 0;
+            while (start < s.size()) {
+                size_t comma = s.find(',', start);
+                string part = s.substr(start, comma == string::npos ? string::npos : comma - start);
+                if (!part.empty()) stages.push_back(atoi(part.c_str()));
+                if (comma == string::npos) break;
+                start = comma + 1;
+            }
+        } else if (arg == "--csv-out" && i + 1 < argc) {
+            csv_out = argv[++i];
+        }
+    }
 
     // Login first to get session cookie
     HttpClient login_client(host, port);
@@ -193,14 +248,15 @@ int main(int argc, char** argv) {
     cerr << "=== DB Connection Pool Benchmark ===\n";
     cerr << "Target: " << host << ":" << port << "\n";
     cerr << "Logged in as: " << username << "\n";
-    cerr << "Running gradual load test: 10 -> 50 -> 100 -> 200 concurrency\n";
-    cerr << "Each stage runs for 30 seconds\n\n";
+    cerr << "Running gradual load test with stages: ";
+    for (size_t i = 0; i < stages.size(); i++) {
+        cerr << stages[i] << (i + 1 == stages.size() ? "" : ",");
+    }
+    cerr << "\n";
+    cerr << "Each stage runs for " << duration_sec << " seconds\n\n";
 
-    // CSV header
-    cout << "concurrency,qps,p99_latency_us,error_rate_percent\n";
+    vector<StageResult> results;
 
-    // Gradual load stages
-    vector<int> stages = {10, 50, 100, 200};
     for (int concurrency : stages) {
         cerr << "Running stage: " << concurrency << " concurrent connections...\n";
 
@@ -211,7 +267,34 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        run_load_test(host, port, "", concurrency, 30);
+        auto r = run_load_test(host, port, stage_client.get_session_cookie(), concurrency, duration_sec);
+        results.push_back(r);
+        cerr << "  qps=" << r.qps << ", p99_us=" << r.p99_us << ", error_rate=" << r.error_rate << "%\n";
+    }
+
+    cout << "concurrency,qps,p95_latency_us,p99_latency_us,error_rate_percent\n";
+    for (const auto& r : results) {
+        cout << r.concurrency << ","
+             << r.qps << ","
+             << r.p95_us << ","
+             << r.p99_us << ","
+             << r.error_rate << "\n";
+    }
+
+    if (!csv_out.empty()) {
+        ofstream ofs(csv_out);
+        if (!ofs.is_open()) {
+            cerr << "Failed to write csv: " << csv_out << "\n";
+            return 1;
+        }
+        ofs << "concurrency,qps,p95_latency_us,p99_latency_us,error_rate_percent\n";
+        for (const auto& r : results) {
+            ofs << r.concurrency << ","
+                << r.qps << ","
+                << r.p95_us << ","
+                << r.p99_us << ","
+                << r.error_rate << "\n";
+        }
     }
 
     cerr << "\nBenchmark complete. Results saved in CSV format.\n";

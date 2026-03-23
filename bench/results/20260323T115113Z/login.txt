@@ -1,0 +1,19 @@
+=== Login Benchmark ===
+Target: 127.0.0.1:8080
+Threads: 16
+Requests per thread: 1000
+Total requests: 16000
+
+=== Results ===
+Elapsed: 0.002 seconds
+Success: 0
+Failed: 16000
+  - Network failed: 16000
+  - HTTP non-200: 0
+QPS: 0
+
+=== Latency (microseconds) ===
+P50: 0 us
+P95: 0 us
+P99: 0 us
+Max: 0 us

@@ -161,6 +161,7 @@ public:
         // ─── 选择模型 ────────────────────────────────────
         // 1. 从请求体取前端传来的值（可能是厂商key 或 完整模型名）
         std::string modelField = extractField(body, "model");
+        bool enableTools = extractBool(body, "enable_tools");
 
         // 2. 模型名 → 厂商key 映射表
         //    前端传来的是具体模型名时，在这里转换成工厂注册的 key
@@ -230,56 +231,68 @@ public:
 
         // strategy / agent 用 shared_ptr 持有，在 lambda 里安全捕获
         auto strategyPtr = std::shared_ptr<ai::AIStrategy>(std::move(strategy));
-        auto agentPtr    = std::make_shared<mcp::MCPAgent>(3); // 最多 3 轮工具调用
+        auto onToken = [sseConn, fullReply, capturedUserIdStr, connId](const std::string& token) {
+            std::string data = R"({"token":")" + escapeJson(token) + R"("})";
+            if (!capturedUserIdStr.empty())
+                SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
+            else if (sseConn && !sseConn->isClosed())
+                sseConn->send(data);
+            fullReply->append(token);
+        };
 
-        std::thread([agentPtr, strategyPtr, messages,
-                     sseConn, fullReply, capturedConvId, capturedUserId,
-                     capturedUserIdStr, connId]() {
-            agentPtr->chat(
-                strategyPtr.get(),
-                messages,
-                [sseConn, fullReply, capturedUserIdStr, connId](const std::string& token) {
-                    std::string data = R"({"token":")" + escapeJson(token) + R"("})";
-                    if (!capturedUserIdStr.empty())
-                        SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
-                    else if (sseConn && !sseConn->isClosed())
-                        sseConn->send(data);
-                    fullReply->append(token);
-                },
-                // onDone：入库 + 关闭 SSE
-                [sseConn, connId, strategyPtr, agentPtr, fullReply,
-                 capturedConvId, capturedUserId, capturedUserIdStr]() {
-                    if (capturedUserId > 0 && capturedConvId > 0 && !fullReply->empty())
-                    {
-                        dao::MessageDao::insert(capturedConvId, "assistant", *fullReply);
-                        dao::ConversationDao::touch(capturedConvId);
+        auto onDone = [sseConn, connId, strategyPtr, fullReply,
+                       capturedConvId, capturedUserId, capturedUserIdStr]() {
+            if (capturedUserId > 0 && capturedConvId > 0 && !fullReply->empty())
+            {
+                dao::MessageDao::insert(capturedConvId, "assistant", *fullReply);
+                dao::ConversationDao::touch(capturedConvId);
+            }
+            if (!capturedUserIdStr.empty())
+                SseManager::instance().publishToUser(capturedUserIdStr, "[DONE]", connId);
+            else if (sseConn) sseConn->sendDone();
+            SseManager::instance().removeConnection(connId);
+        };
+
+        auto onError = [sseConn, connId, strategyPtr, capturedUserIdStr](const std::string& error) {
+            std::string data = R"({"error":")" + escapeJson(error) + R"("})";
+            if (!capturedUserIdStr.empty())
+                SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
+            else if (sseConn && !sseConn->isClosed())
+                sseConn->send(data, "error");
+            SseManager::instance().removeConnection(connId);
+        };
+
+        if (!enableTools)
+        {
+            // 默认真流式：直接走模型的流式接口，首 token 到达更快
+            strategyPtr->sendStreamMsg(messages, onToken, onDone, onError);
+        }
+        else
+        {
+            // 工具模式：显式开启时才走 MCP 两段式流程
+            auto agentPtr = std::make_shared<mcp::MCPAgent>(3); // 最多 3 轮工具调用
+            std::thread([agentPtr, strategyPtr, messages, onToken, onDone, onError,
+                         sseConn, capturedUserIdStr, connId]() {
+                agentPtr->chat(
+                    strategyPtr.get(),
+                    messages,
+                    onToken,
+                    onDone,
+                    onError,
+                    // onToolCall：工具调用事件推送给前端
+                    [sseConn, capturedUserIdStr, connId](const std::string& toolName,
+                                                         const std::string& result) {
+                        std::string payload =
+                            R"({"tool":")" + toolName + R"(","result":")" +
+                            escapeJson(result) + R"("})";
+                        if (!capturedUserIdStr.empty())
+                            SseManager::instance().publishToUser(capturedUserIdStr, payload, connId);
+                        else if (sseConn && !sseConn->isClosed())
+                            sseConn->send(payload, "tool");
                     }
-                    if (!capturedUserIdStr.empty())
-                        SseManager::instance().publishToUser(capturedUserIdStr, "[DONE]", connId);
-                    else if (sseConn) sseConn->sendDone();
-                    SseManager::instance().removeConnection(connId);
-                },
-                // onError
-                [sseConn, connId, strategyPtr, agentPtr, capturedUserIdStr](const std::string& error) {
-                    std::string data = R"({"error":")" + escapeJson(error) + R"("})";
-                    if (!capturedUserIdStr.empty())
-                        SseManager::instance().publishToUser(capturedUserIdStr, data, connId);
-                    else if (sseConn && !sseConn->isClosed())
-                        sseConn->send(data, "error");
-                    SseManager::instance().removeConnection(connId);
-                },
-                // onToolCall：工具调用事件推送给前端
-                [sseConn, capturedUserIdStr, connId](const std::string& toolName, const std::string& result) {
-                    std::string payload =
-                        R"({"tool":")" + toolName + R"(","result":")" +
-                        escapeJson(result) + R"("})";
-                    if (!capturedUserIdStr.empty())
-                        SseManager::instance().publishToUser(capturedUserIdStr, payload, connId);
-                    else if (sseConn && !sseConn->isClosed())
-                        sseConn->send(payload, "tool");
-                }
-            );
-        }).detach();
+                );
+            }).detach();
+        }
 
         resp->setStatusCode(HttpResponse::k200Ok);
         resp->markAsSseUpgraded();
@@ -391,6 +404,19 @@ private:
         while (pos < json.size() && std::isdigit((unsigned char)json[pos]))
             result += json[pos++];
         return result;
+    }
+
+    static bool extractBool(const std::string& json, const std::string& field)
+    {
+        std::string key = "\"" + field + "\"";
+        auto pos = json.find(key);
+        if (pos == std::string::npos) return false;
+        pos += key.size();
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == ':')) ++pos;
+        if (pos >= json.size()) return false;
+        if (json.compare(pos, 4, "true") == 0) return true;
+        if (json.compare(pos, 5, "false") == 0) return false;
+        return false;
     }
 
     static std::string escapeJson(const std::string& s)
